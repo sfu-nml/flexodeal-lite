@@ -1,11 +1,10 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2010 - 2020 by the deal.II authors and
- *                              & Jean-Paul Pelteret and Andrew McBride
+ * Copyright (C) 2024 by Javier Almonacid
  *
- * This file is part of the deal.II library.
+ * This file is part of the Flexodeal library
  *
- * The deal.II library is free software; you can use it, redistribute
+ * The Flexodeal library is free software; you can use it, redistribute
  * it, and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
@@ -15,8 +14,7 @@
  * ---------------------------------------------------------------------
 
  *
- * Authors: Jean-Paul Pelteret, University of Cape Town,
- *          Andrew McBride, University of Erlangen-Nuremberg, 2010
+ * Author: Javier Almonacid, Simon Fraser University
  */
 
 
