@@ -9,3 +9,7 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+*.vtu
+dynamic-muscle
+temp_text.txt
+commit_text.txt
