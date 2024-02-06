@@ -156,6 +156,9 @@ namespace Step44
     struct Geometry
     {
       unsigned int global_refinement;
+      double       length;
+      double       width;
+      double       height;
       double       scale;
       double       p_p0;
 
@@ -172,6 +175,18 @@ namespace Step44
                           "2",
                           Patterns::Integer(0),
                           "Global refinement level");
+        
+        prm.declare_entry("Length", "1.0",
+                          Patterns::Double(0.0),
+                          "Length in the x direction");
+
+        prm.declare_entry("Width", "1.0",
+                          Patterns::Double(0.0),
+                          "Width in the y direction");
+
+        prm.declare_entry("Height", "1.0",
+                          Patterns::Double(0.0),
+                          "Height in the z direction");
 
         prm.declare_entry("Grid scale",
                           "1e-3",
@@ -191,6 +206,9 @@ namespace Step44
       prm.enter_subsection("Geometry");
       {
         global_refinement = prm.get_integer("Global refinement");
+        length            = prm.get_double("Length"); 
+        width             = prm.get_double("Width"); 
+        height            = prm.get_double("Height");
         scale             = prm.get_double("Grid scale");
         p_p0              = prm.get_double("Pressure ratio p/p0");
       }
@@ -1449,7 +1467,7 @@ namespace Step44
     GridGenerator::hyper_rectangle(
       triangulation,
       (dim == 3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
-      (dim == 3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)),
+      (dim == 3 ? Point<dim>(parameters.length, parameters.height, parameters.width) : Point<dim>(parameters.length, parameters.height)),
       true);
     GridTools::scale(parameters.scale, triangulation);
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
@@ -1466,17 +1484,17 @@ namespace Step44
       for (const auto &face : cell->face_iterators())
         {
           if (face->at_boundary() == true &&
-              face->center()[1] == 1.0 * parameters.scale)
+              face->center()[1] == 1.0 * parameters.height * parameters.scale)
             {
               if (dim == 3)
                 {
-                  if (face->center()[0] < 0.5 * parameters.scale &&
-                      face->center()[2] < 0.5 * parameters.scale)
+                  if (face->center()[0] < 0.5 * parameters.length * parameters.scale &&
+                      face->center()[2] < 0.5 * parameters.width * parameters.scale)
                     face->set_boundary_id(6);
                 }
               else
                 {
-                  if (face->center()[0] < 0.5 * parameters.scale)
+                  if (face->center()[0] < 0.5 * parameters.length * parameters.scale)
                     face->set_boundary_id(6);
                 }
             }

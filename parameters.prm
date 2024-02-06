@@ -16,6 +16,15 @@ subsection Geometry
   # Global refinement level
   set Global refinement   = 2
 
+   # Length of the muscle block
+  set Length = 3.0
+
+  # Width of the muscle block
+  set Width = 1.0
+
+  # Height of the muscle block
+  set Height = 1.0
+
   # Global grid scaling factor
   set Grid scale          = 1e-3
 
