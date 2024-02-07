@@ -413,6 +413,64 @@ namespace Step44
       prm.leave_subsection();
     }
 
+    // @sect4{PrescribedDisplacement}
+
+    // Set the parameters for the prescribed displacement.
+    struct PrescribedDisplacement
+    {
+      unsigned int pulling_face_id;
+      double pull_time_start;
+      double pull_time_end;
+      double pull_strain;
+      double pull_strain_rate;
+
+      static void
+      declare_parameters(ParameterHandler &prm);
+
+      void
+      parse_parameters(ParameterHandler &prm);
+    };
+
+    void PrescribedDisplacement::declare_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Prescribed displacement");
+      {
+        prm.declare_entry("Pulling face ID", "1",
+                          Patterns::Integer(0,6),
+                          "Boundary ID of face being pulled/pushed");
+        
+        prm.declare_entry("Pull time start", "0.0",
+                          Patterns::Double(),
+                          "Pulling start time");
+
+        prm.declare_entry("Pull time end", "1.0",
+                          Patterns::Double(),
+                          "Pulling end time");
+        
+        prm.declare_entry("Pull strain", "0.0",
+                          Patterns::Double(-1,10),
+                          "Strain to which the body is being pulled");
+
+        prm.declare_entry("Pull strain rate", "1.0",
+                          Patterns::Double(0,100),
+                          "Maximum pulling strain rate");
+      }
+      prm.leave_subsection();
+    }
+
+    void PrescribedDisplacement::parse_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Prescribed displacement");
+      {
+        pulling_face_id  = prm.get_integer("Pulling face ID");
+        pull_time_start  = prm.get_double("Pull time start");
+        pull_time_end    = prm.get_double("Pull time end");
+        pull_strain      = prm.get_double("Pull strain");
+        pull_strain_rate = prm.get_double("Pull strain rate");
+      }
+      prm.leave_subsection();
+    }
+
     // @sect4{All parameters}
 
     // Finally we consolidate all of the above structures into a single
@@ -422,7 +480,8 @@ namespace Step44
                            public Materials,
                            public LinearSolver,
                            public NonlinearSolver,
-                           public Time
+                           public Time,
+                           public PrescribedDisplacement
 
     {
       AllParameters(const std::string &input_file);
@@ -448,6 +507,7 @@ namespace Step44
       LinearSolver::declare_parameters(prm);
       NonlinearSolver::declare_parameters(prm);
       Time::declare_parameters(prm);
+      PrescribedDisplacement::declare_parameters(prm);
     }
 
     void AllParameters::parse_parameters(ParameterHandler &prm)
@@ -458,6 +518,7 @@ namespace Step44
       LinearSolver::parse_parameters(prm);
       NonlinearSolver::parse_parameters(prm);
       Time::parse_parameters(prm);
+      PrescribedDisplacement::parse_parameters(prm);
     }
   } // namespace Parameters
 
@@ -482,6 +543,10 @@ namespace Step44
     double current() const
     {
       return time_current;
+    }
+    double previous() const
+    {
+      return time_previous;
     }
     double end() const
     {
@@ -855,6 +920,122 @@ namespace Step44
     Tensor<1, dim> velocity_previous;
   };
 
+  // @sect3{PrescribedDisplacement and IncrementalDisplacement classes}
+  
+  // We first implement the PrescribedDisplacement class which
+  // which keeps track of the Dirichlet boundary condition for
+  // the whole problem. Note however that, because we are solving
+  // a series of Newton increments, THIS IS NOT THE BOUNDARY
+  // CONDITION THAT NEEDS TO BE IMPLEMENTED. This is done in
+  // the IncrementalDisplacement class.
+  template <int dim>
+  class PrescribedDisplacement
+  {
+  public:
+    PrescribedDisplacement(const double pull_start,
+                           const double pull_end,
+                           const double pull_strain,
+                           const double pull_strain_rate,
+                           const double muscle_length)
+      :
+      pull_start(pull_start),
+      pull_end(pull_end),
+      pull_strain(pull_strain),
+      pull_strain_rate(pull_strain_rate),
+      muscle_length(muscle_length)
+    {
+      // Verify that pull_strain_rate is fast enough given the
+      // start and end times
+      const double min_strain_rate = 
+        std::abs(pull_strain * muscle_length / (pull_end - pull_start));
+      const std::string error_message = 
+        "Pull strain rate, currently set to " + std::to_string(pull_strain_rate) + 
+        ", must be set to at least " + std::to_string(min_strain_rate) + ".";
+      AssertThrow(pull_strain_rate >= min_strain_rate, ExcMessage(error_message));
+    }
+
+    double displacement(const double t)
+    {
+      double value = 0.0;
+
+      // Compute t0, t1
+      const double L0 = muscle_length;
+      const double L1 = muscle_length * (1 + pull_strain);
+      const double Lmid = (L0 + L1) / 2.0;
+      const double tmid = (pull_start + pull_end) / 2.0;
+
+      double t0, t1;
+      if (pull_strain >= 0)
+      {
+        t0 = (L0 - Lmid) / pull_strain_rate + tmid;
+        t1 = (L1 - Lmid) / pull_strain_rate + tmid;
+      }
+      else
+      {
+        t0 = (L1 - Lmid) / pull_strain_rate + tmid;
+        t1 = (L0 - Lmid) / pull_strain_rate + tmid;
+      }
+      
+      int sign_pull = 0;
+      if (pull_strain != 0)
+        sign_pull = (pull_strain > 0) ? 1 : -1;
+
+      if (t <= t0)
+        value = 0.0;
+      else if (t > t0 && t < t1)
+        value = sign_pull * pull_strain_rate * (t - tmid) + Lmid - muscle_length;
+      else if (t >= t1)
+        value = pull_strain * muscle_length;
+      
+      return value;
+    }
+    
+    private:
+      const double pull_start;
+      const double pull_end;
+      const double pull_strain;
+      const double pull_strain_rate;
+      const double muscle_length;
+  };
+
+
+  // An important note in this class: because this will be fed into
+  // the VectorTools::interpolate_boundary_values function, it MUST
+  // inherit Function<dim>. Moreover, to avoid the error message
+  // "Dimension 5 not equal to 3" when running in Debug mode, we 
+  // must intialize the Function<dim> element using the same number
+  // of components that the finite element will have. In the Solid
+  // class below, this number is given by n_components = dim + 2. 
+  // However, because at this juncture we have not implement Solid 
+  // yet, we must hard code this. Note also that, although this might
+  // sound like we are about to implement a boundary condition
+  // for all three variables (i.e. including pressure and dilation),
+  // this discrepancy will be solved when calling component_mask.
+  template <int dim>
+  class IncrementalDisplacement : public Function<dim>
+  {
+  public:
+    IncrementalDisplacement(const double u_dir_n, const double u_dir_n_1)
+        :
+        Function<dim>(dim + 2),
+        u_dir_n(u_dir_n),
+        u_dir_n_1(u_dir_n_1)
+    {}
+
+    virtual double value(const Point<dim> &point,
+                          const unsigned int component = 0) const override;
+  
+  private:
+    const double u_dir_n, u_dir_n_1;
+  };
+
+  template <>
+  double IncrementalDisplacement<3>::value(const Point<3> &/*point*/,
+                                           const unsigned int component) const
+  {
+    return (component == 0) ? (u_dir_n - u_dir_n_1) : 0.0;
+  }
+
 
   // @sect3{Quasi-static quasi-incompressible finite-strain solid}
 
@@ -979,6 +1160,9 @@ namespace Step44
     Time                time;
     mutable TimerOutput timer;
 
+    // Create pulling profile
+    PrescribedDisplacement<dim> u_dir;
+
     // A storage object for quadrature point information. As opposed to
     // step-18, deal.II's native quadrature point data manager is employed
     // here.
@@ -1101,6 +1285,11 @@ namespace Step44
     , triangulation(Triangulation<dim>::maximum_smoothing)
     , time(parameters.end_time, parameters.delta_t)
     , timer(std::cout, TimerOutput::summary, TimerOutput::wall_times)
+    , u_dir(parameters.pull_time_start,
+            parameters.pull_time_end,
+            parameters.pull_strain,
+            parameters.pull_strain_rate,
+            parameters.length * parameters.scale)
     , degree(parameters.poly_degree)
     ,
     // The Finite Element System is composed of dim continuous displacement
@@ -1475,30 +1664,9 @@ namespace Step44
     vol_reference = GridTools::volume(triangulation);
     std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
 
-    // Since we wish to apply a Neumann BC to a patch on the top surface, we
-    // must find the cell faces in this part of the domain and mark them with
-    // a distinct boundary ID number.  The faces we are looking for are on the
-    // +y surface and will get boundary ID 6 (zero through five are already
-    // used when creating the six faces of the cube domain):
-    for (const auto &cell : triangulation.active_cell_iterators())
-      for (const auto &face : cell->face_iterators())
-        {
-          if (face->at_boundary() == true &&
-              face->center()[1] == 1.0 * parameters.height * parameters.scale)
-            {
-              if (dim == 3)
-                {
-                  if (face->center()[0] < 0.5 * parameters.length * parameters.scale &&
-                      face->center()[2] < 0.5 * parameters.width * parameters.scale)
-                    face->set_boundary_id(6);
-                }
-              else
-                {
-                  if (face->center()[0] < 0.5 * parameters.length * parameters.scale)
-                    face->set_boundary_id(6);
-                }
-            }
-        }
+    /*
+      BLOCK OF CODE REMOVED. MUSCLE BLOCK WON'T HAVE ID = 6 FOR NOW.
+    */
   }
 
 
@@ -1866,7 +2034,7 @@ namespace Step44
           error_residual_0 = error_residual;
 
         error_residual_norm = error_residual;
-        error_residual_norm.normalize(error_residual_0);
+        //error_residual_norm.normalize(error_residual_0);
 
         if (newton_iteration > 0 && error_update_norm.u <= parameters.tol_u &&
             error_residual_norm.u <= parameters.tol_f)
@@ -1888,7 +2056,7 @@ namespace Step44
           error_update_0 = error_update;
 
         error_update_norm = error_update;
-        error_update_norm.normalize(error_update_0);
+        //error_update_norm.normalize(error_update_0);
 
         // Lastly, since we implicitly accept the solution step we can perform
         // the actual update of the solution increment for the current time
@@ -2356,6 +2524,10 @@ namespace Step44
     // Next we assemble the Neumann contribution. We first check to see it the
     // cell face exists on a boundary on which a traction is applied and add
     // the contribution if this is the case.
+    //
+    // ********** TRACTION BOUNDARY CONDITION TEMPORARILY DISABLED *************
+    //
+    /* 
     for (const auto &face : cell->face_iterators())
       if (face->at_boundary() && face->boundary_id() == 6)
         {
@@ -2404,6 +2576,7 @@ namespace Step44
                 }
             }
         }
+      */
 
     // Finally, we need to copy the lower half of the local matrix into the
     // upper half:
@@ -2479,6 +2652,7 @@ namespace Step44
         // use it when generating the relevant component masks:
         const FEValuesExtractors::Scalar x_displacement(0);
         const FEValuesExtractors::Scalar y_displacement(1);
+        const FEValuesExtractors::Scalar z_displacement(2);
 
         {
           const int boundary_id = 0;
@@ -2488,79 +2662,23 @@ namespace Step44
             boundary_id,
             Functions::ZeroFunction<dim>(n_components),
             constraints,
-            fe.component_mask(x_displacement));
+            (fe.component_mask(x_displacement) | fe.component_mask(y_displacement) | fe.component_mask(z_displacement)));
         }
+
         {
-          const int boundary_id = 2;
+          const int boundary_id = parameters.pulling_face_id; // Which in most cases will be equal to 1
 
           VectorTools::interpolate_boundary_values(
             dof_handler,
             boundary_id,
-            Functions::ZeroFunction<dim>(n_components),
+            IncrementalDisplacement<dim>(
+              u_dir.displacement(time.current()),u_dir.displacement(time.previous())),
             constraints,
-            fe.component_mask(y_displacement));
+            (fe.component_mask(x_displacement) | fe.component_mask(y_displacement) | fe.component_mask(z_displacement)));
         }
 
-        if (dim == 3)
-          {
-            const FEValuesExtractors::Scalar z_displacement(2);
+        // All other faces are traction-free.
 
-            {
-              const int boundary_id = 3;
-
-              VectorTools::interpolate_boundary_values(
-                dof_handler,
-                boundary_id,
-                Functions::ZeroFunction<dim>(n_components),
-                constraints,
-                (fe.component_mask(x_displacement) |
-                 fe.component_mask(z_displacement)));
-            }
-            {
-              const int boundary_id = 4;
-
-              VectorTools::interpolate_boundary_values(
-                dof_handler,
-                boundary_id,
-                Functions::ZeroFunction<dim>(n_components),
-                constraints,
-                fe.component_mask(z_displacement));
-            }
-
-            {
-              const int boundary_id = 6;
-
-              VectorTools::interpolate_boundary_values(
-                dof_handler,
-                boundary_id,
-                Functions::ConstantFunction<dim>(-0.50 * parameters.scale * parameters.delta_t / parameters.end_time,n_components),
-                constraints,
-                (fe.component_mask(y_displacement)));
-            }
-          }
-        else
-          {
-            {
-              const int boundary_id = 3;
-
-              VectorTools::interpolate_boundary_values(
-                dof_handler,
-                boundary_id,
-                Functions::ZeroFunction<dim>(n_components),
-                constraints,
-                (fe.component_mask(x_displacement)));
-            }
-            {
-              const int boundary_id = 6;
-
-              VectorTools::interpolate_boundary_values(
-                dof_handler,
-                boundary_id,
-                Functions::ZeroFunction<dim>(n_components),
-                constraints,
-                (fe.component_mask(y_displacement)));
-            }
-          }
       }
     else
       {
