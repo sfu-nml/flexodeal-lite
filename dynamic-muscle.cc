@@ -54,6 +54,7 @@
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/precondition_selector.h>
 #include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/solver_selector.h>
 #include <deal.II/lac/sparse_direct.h>
 #include <deal.II/lac/affine_constraints.h>
@@ -281,7 +282,7 @@ namespace Step44
       {
         prm.declare_entry("Solver type",
                           "CG",
-                          Patterns::Selection("CG|Direct"),
+                          Patterns::Selection("GMRES|CG|Direct"),
                           "Type of solver used to solve the linear system");
 
         prm.declare_entry("Residual",
@@ -3181,6 +3182,32 @@ namespace Step44
               lin_it  = solver_control.last_step();
               lin_res = solver_control.last_value();
             }
+          else if (parameters.type_lin == "GMRES")
+            {
+              const auto solver_its = static_cast<unsigned int>(
+                tangent_matrix.block(u_dof, u_dof).m() *
+                parameters.max_iterations_lin);
+              const double tol_sol =
+                parameters.tol_lin * system_rhs.block(u_dof).l2_norm();
+
+              SolverControl solver_control(solver_its, tol_sol);
+
+              GrowingVectorMemory<Vector<double> > GVM;
+              SolverGMRES<Vector<double> > solver_GMRES(solver_control, GVM);
+
+              PreconditionSelector<SparseMatrix<double>, Vector<double> >
+                preconditioner(parameters.preconditioner_type,
+                               parameters.preconditioner_relaxation);
+              preconditioner.use_matrix(tangent_matrix.block(u_dof, u_dof));
+
+              solver_GMRES.solve(tangent_matrix.block(u_dof, u_dof),
+                                 newton_update.block(u_dof),
+                                 system_rhs.block(u_dof),
+                                 preconditioner);
+
+              lin_it = solver_control.last_step();
+              lin_res = solver_control.last_value();
+            }
           else if (parameters.type_lin == "Direct")
             {
               // Otherwise if the problem is small
@@ -3448,6 +3475,65 @@ namespace Step44
             d_p = K_Jp_inv * (f_J - K_JJ * d_J);
 
             lin_it  = solver_control_K_con_inv.last_step();
+            lin_res = solver_control_K_con_inv.last_value();
+          }
+        else if (parameters.type_lin == "GMRES")
+          {
+            const Vector<double> &f_u = system_rhs.block(u_dof);
+            const Vector<double> &f_p = system_rhs.block(p_dof);
+            const Vector<double> &f_J = system_rhs.block(J_dof);
+
+            Vector<double> &d_u = newton_update.block(u_dof);
+            Vector<double> &d_p = newton_update.block(p_dof);
+            Vector<double> &d_J = newton_update.block(J_dof);
+
+            const auto K_uu = linear_operator(tangent_matrix.block(u_dof, u_dof));
+            const auto K_up = linear_operator(tangent_matrix.block(u_dof, p_dof));
+            const auto K_pu = linear_operator(tangent_matrix.block(p_dof, u_dof));
+            const auto K_Jp = linear_operator(tangent_matrix.block(J_dof, p_dof));
+            const auto K_JJ = linear_operator(tangent_matrix.block(J_dof, J_dof));
+
+            PreconditionSelector< SparseMatrix<double>, Vector<double> >
+            preconditioner_K_Jp_inv ("jacobi");
+            preconditioner_K_Jp_inv.use_matrix(tangent_matrix.block(J_dof, p_dof));
+            ReductionControl solver_control_K_Jp_inv (tangent_matrix.block(J_dof, p_dof).m() * parameters.max_iterations_lin,
+                                                      1.0e-30, parameters.tol_lin);
+            SolverSelector< Vector<double> > solver_K_Jp_inv;
+            solver_K_Jp_inv.select("gmres");
+            solver_K_Jp_inv.set_control(solver_control_K_Jp_inv);
+            const auto K_Jp_inv = inverse_operator(K_Jp,
+                                                   solver_K_Jp_inv,
+                                                   preconditioner_K_Jp_inv);
+
+            const auto K_pJ_inv     = transpose_operator(K_Jp_inv);
+            const auto K_pp_bar     = K_Jp_inv * K_JJ * K_pJ_inv;
+            const auto K_uu_bar_bar = K_up * K_pp_bar * K_pu;
+            const auto K_uu_con     = K_uu + K_uu_bar_bar;
+
+            PreconditionSelector< SparseMatrix<double>, Vector<double> >
+            preconditioner_K_con_inv (parameters.preconditioner_type,
+                                      parameters.preconditioner_relaxation);
+            preconditioner_K_con_inv.use_matrix(tangent_matrix.block(u_dof, u_dof));
+            ReductionControl solver_control_K_con_inv (tangent_matrix.block(u_dof, u_dof).m() * parameters.max_iterations_lin,
+                                                       1.0e-30, parameters.tol_lin);
+            SolverSelector< Vector<double> > solver_K_con_inv;
+            solver_K_con_inv.select("gmres");
+            solver_K_con_inv.set_control(solver_control_K_con_inv);
+            const auto K_uu_con_inv = inverse_operator(K_uu_con,
+                                                       solver_K_con_inv,
+                                                       preconditioner_K_con_inv);
+
+            d_u = K_uu_con_inv*(f_u - K_up*(K_Jp_inv*f_J - K_pp_bar*f_p));
+
+            timer.leave_subsection();
+
+            timer.enter_subsection("Linear solver postprocessing");
+            std::cout << " PP " << std::flush;
+
+            d_J = K_pJ_inv*(f_p - K_pu*d_u);
+            d_p = K_Jp_inv*(f_J - K_JJ*d_J);
+
+            lin_it = solver_control_K_con_inv.last_step();
             lin_res = solver_control_K_con_inv.last_value();
           }
         else if (parameters.type_lin == "Direct")
