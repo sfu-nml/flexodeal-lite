@@ -14,3 +14,12 @@ dynamic-muscle
 temp_text.txt
 commit_text.txt
 .vscode/
+
+# Latex
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
