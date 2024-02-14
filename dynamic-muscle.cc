@@ -39,6 +39,7 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_in.h>
+#include <deal.II/grid/grid_out.h>
 #include <deal.II/grid/tria.h>
 
 #include <deal.II/fe/fe_dgp_monomial.h>
@@ -83,7 +84,7 @@
 // We then stick everything that relates to this tutorial program into a
 // namespace of its own, and import all the deal.II function and class names
 // into it:
-namespace Step44
+namespace Flexodeal
 {
   using namespace dealii;
 
@@ -608,11 +609,17 @@ namespace Step44
       static void declare_parameters(ParameterHandler &prm);
 
       void parse_parameters(ParameterHandler &prm);
+
+      // We decide to keep track of the parameter handler
+      // object since we want to call prm.print_parameters()
+      // after the constructor has been called and we need
+      // to first set up the directories with the current
+      // timestamp.
+      ParameterHandler prm;
     };
 
     AllParameters::AllParameters(const std::string &input_file)
     {
-      ParameterHandler prm;
       declare_parameters(prm);
       prm.parse_input(input_file);
       parse_parameters(prm);
@@ -1756,6 +1763,9 @@ namespace Step44
     static void print_conv_header();
 
     void print_conv_footer();
+
+    // Store the outputs in a separate folder
+    char save_dir[80];
   };
 
   // @sect3{Implementation of the <code>Solid</code> class}
@@ -1809,6 +1819,50 @@ namespace Step44
     Assert(dim == 2 || dim == 3,
            ExcMessage("This problem only works in 2 or 3 space dimensions."));
     determine_component_extractors();
+
+    // Initialize save_dir
+    std::chrono::system_clock::time_point time_now;
+    time_t time_conv;
+    struct tm* timeinfo;
+
+    time_now = std::chrono::system_clock::now();
+    time_conv = std::chrono::system_clock::to_time_t(time_now);
+    timeinfo = localtime(&time_conv);
+    strftime(save_dir,80,"%Y%m%d_%H%M%S",timeinfo);
+
+    // Append _Q or _D depending on the type of simulation
+    if (parameters.type_of_simulation == "quasi-static")
+      strcat(save_dir, "_Q");
+    else if (parameters.type_of_simulation == "dynamic")
+      strcat(save_dir, "_D");
+
+    // Append nonlinear solver info
+    if (parameters.type_nonlinear_solver == "classicNewton")
+      strcat(save_dir, "C");
+    else if (parameters.type_nonlinear_solver == "acceleratedNewton")
+      strcat(save_dir, "A");
+
+    // Append linear solver info
+    if (parameters.type_lin == "CG")
+      strcat(save_dir, "C");
+    else if (parameters.type_lin == "GMRES")
+      strcat(save_dir, "G");
+    else if (parameters.type_lin == "Direct")
+      strcat(save_dir, "D");
+    
+    // Append preconditioner info
+    if (parameters.type_lin == "Direct")
+      strcat(save_dir, "X");
+    else if (parameters.preconditioner_type == "ssor" && parameters.type_lin != "Direct")
+      strcat(save_dir, "S");
+    else if (parameters.preconditioner_type == "jacobi" && parameters.type_lin != "Direct")
+      strcat(save_dir, "J");
+
+    // Static condensation?
+    if (parameters.use_static_condensation)
+      strcat(save_dir, "T");
+    else
+      strcat(save_dir, "F");
   }
 
 
@@ -1842,6 +1896,26 @@ namespace Step44
   template <int dim>
   void Solid<dim>::run()
   {
+    std::cout << "--------------------------------------------------------" << "\n"
+              << "                                                        " << "\n"
+              << "             F L E X O D E A L  ( L I T E )             " << "\n"
+              << "                                                        " << "\n"
+              << "--------------------------------------------------------" << "\n" << std::endl;
+
+    // Create directory to store all the outputs
+    if (mkdir(save_dir, 0777) == -1)
+      std::cerr << "Error :  " << strerror(errno) << std::endl;
+    
+    // Store parameters file
+    {
+      std::ostringstream prm_output_filename;
+      prm_output_filename << save_dir << "/parameters.prm";
+      std::ofstream out(prm_output_filename.str().c_str());
+      parameters.prm.print_parameters(out, 
+                                      ParameterHandler::PRM | 
+                                      ParameterHandler::KeepDeclarationOrder);
+    }
+
     make_grid();
     system_setup();
     {
@@ -2155,6 +2229,18 @@ namespace Step44
     /*
       BLOCK OF CODE REMOVED. MUSCLE BLOCK WON'T HAVE ID = 6 FOR NOW.
     */
+
+    // Output grid
+    {
+      std::ostringstream filename;
+      filename << save_dir << "/grid-" << dim << "d"<< ".msh";
+      GridOut           grid_out;
+      GridOutFlags::Msh write_flags;
+      write_flags.write_faces = true;
+      grid_out.set_flags(write_flags);
+      std::ofstream output(filename.str().c_str());
+      grid_out.write_msh(triangulation, output);
+    }
   }
 
 
@@ -4141,12 +4227,15 @@ namespace Step44
     MappingQEulerian<dim> q_mapping(degree, dof_handler, soln);
     data_out.build_patches(q_mapping, degree);
 
-    std::ofstream output("solution-" + std::to_string(dim) + "d-" +
-                         std::to_string(time.get_timestep()) + ".vtu");
+    std::ostringstream filename;
+    filename << save_dir << "/solution-" << dim << "d-" 
+             << std::setfill('0') << std::setw(3) << time.get_timestep() << ".vtu";
+    
+    std::ofstream output(filename.str().c_str());
     data_out.write_vtu(output);
   }
 
-} // namespace Step44
+} // namespace Flexodeal
 
 
 // @sect3{Main function}
@@ -4154,7 +4243,7 @@ namespace Step44
 // no different to the other tutorials.
 int main()
 {
-  using namespace Step44;
+  using namespace Flexodeal;
 
   try
     {
