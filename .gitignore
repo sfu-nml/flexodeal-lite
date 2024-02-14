@@ -15,6 +15,7 @@ temp_text.txt
 commit_text.txt
 .vscode/
 results/
+2024*/
 
 # Latex
 *.aux
