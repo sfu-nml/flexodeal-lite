@@ -57,15 +57,6 @@ subsection Linear solver
 end
 
 
-subsection Material properties
-  # Poisson's ratio
-  set Poisson's ratio = 0.4999
-
-  # Shear modulus
-  set Shear modulus   = 80.194e6
-end
-
-
 subsection Materials
   # Density of muscle (kg/m^3)
   set Muscle density = 1060

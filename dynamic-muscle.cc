@@ -216,47 +216,6 @@ namespace Step44
       prm.leave_subsection();
     }
 
-    // @sect4{Materials}
-
-    // We also need the shear modulus $ \mu $ and Poisson ration $ \nu $ for the
-    // neo-Hookean material.
-    struct Materials
-    {
-      double nu;
-      double mu;
-
-      static void declare_parameters(ParameterHandler &prm);
-
-      void parse_parameters(ParameterHandler &prm);
-    };
-
-    void Materials::declare_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Material properties");
-      {
-        prm.declare_entry("Poisson's ratio",
-                          "0.4999",
-                          Patterns::Double(-1.0, 0.5),
-                          "Poisson's ratio");
-
-        prm.declare_entry("Shear modulus",
-                          "80.194e6",
-                          Patterns::Double(),
-                          "Shear modulus");
-      }
-      prm.leave_subsection();
-    }
-
-    void Materials::parse_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Material properties");
-      {
-        nu = prm.get_double("Poisson's ratio");
-        mu = prm.get_double("Shear modulus");
-      }
-      prm.leave_subsection();
-    }
-
     // @sect4{Muscle properties}
 
     struct MuscleProperties
@@ -636,7 +595,6 @@ namespace Step44
     // container that holds all of our run-time selections.
     struct AllParameters : public FESystem,
                            public Geometry,
-                           public Materials,
                            public MuscleProperties,
                            public Activation,
                            public LinearSolver,
@@ -664,7 +622,6 @@ namespace Step44
     {
       FESystem::declare_parameters(prm);
       Geometry::declare_parameters(prm);
-      Materials::declare_parameters(prm);
       MuscleProperties::declare_parameters(prm);
       Activation::declare_parameters(prm);
       LinearSolver::declare_parameters(prm);
@@ -677,7 +634,6 @@ namespace Step44
     {
       FESystem::parse_parameters(prm);
       Geometry::parse_parameters(prm);
-      Materials::parse_parameters(prm);
       MuscleProperties::parse_parameters(prm);
       Activation::parse_parameters(prm);
       LinearSolver::parse_parameters(prm);
@@ -738,191 +694,6 @@ namespace Step44
     double       time_current;
     const double time_end;
     const double delta_t;
-  };
-
-  // @sect3{Compressible neo-Hookean material within a three-field formulation}
-
-  // As discussed in the Introduction, Neo-Hookean materials are a type of
-  // hyperelastic materials.  The entire domain is assumed to be composed of a
-  // compressible neo-Hookean material.  This class defines the behavior of
-  // this material within a three-field formulation.  Compressible neo-Hookean
-  // materials can be described by a strain-energy function (SEF) $ \Psi =
-  // \Psi_{\text{iso}}(\overline{\mathbf{b}}) + \Psi_{\text{vol}}(\widetilde{J})
-  // $.
-  //
-  // The isochoric response is given by $
-  // \Psi_{\text{iso}}(\overline{\mathbf{b}}) = c_{1} [\overline{I}_{1} - 3] $
-  // where $ c_{1} = \frac{\mu}{2} $ and $\overline{I}_{1}$ is the first
-  // invariant of the left- or right-isochoric Cauchy-Green deformation tensors.
-  // That is $\overline{I}_1 \dealcoloneq \textrm{tr}(\overline{\mathbf{b}})$.
-  // In this example the SEF that governs the volumetric response is defined as
-  // $ \Psi_{\text{vol}}(\widetilde{J}) = \kappa \frac{1}{4} [ \widetilde{J}^2 -
-  // 1 - 2\textrm{ln}\; \widetilde{J} ]$, where $\kappa \dealcoloneq \lambda +
-  // 2/3 \mu$ is the <a href="http://en.wikipedia.org/wiki/Bulk_modulus">bulk
-  // modulus</a> and $\lambda$ is <a
-  // href="http://en.wikipedia.org/wiki/Lam%C3%A9_parameters">Lam&eacute;'s
-  // first parameter</a>.
-  //
-  // The following class will be used to characterize the material we work with,
-  // and provides a central point that one would need to modify if one were to
-  // implement a different material model. For it to work, we will store one
-  // object of this type per quadrature point, and in each of these objects
-  // store the current state (characterized by the values or measures  of the
-  // three fields) so that we can compute the elastic coefficients linearized
-  // around the current state.
-  template <int dim>
-  class Material_Compressible_Neo_Hook_Three_Field
-  {
-  public:
-    Material_Compressible_Neo_Hook_Three_Field(const double mu, const double nu)
-      : kappa((2.0 * mu * (1.0 + nu)) / (3.0 * (1.0 - 2.0 * nu)))
-      , c_1(mu / 2.0)
-      , det_F(1.0)
-      , p_tilde(0.0)
-      , J_tilde(1.0)
-      , b_bar(Physics::Elasticity::StandardTensors<dim>::I)
-    {
-      Assert(kappa > 0, ExcInternalError());
-    }
-
-    // We update the material model with various deformation dependent data
-    // based on $F$ and the pressure $\widetilde{p}$ and dilatation
-    // $\widetilde{J}$, and at the end of the function include a physical
-    // check for internal consistency:
-    void update_material_data(const Tensor<2, dim> &F,
-                              const double          p_tilde_in,
-                              const double          J_tilde_in)
-    {
-      det_F                      = determinant(F);
-      const Tensor<2, dim> F_bar = Physics::Elasticity::Kinematics::F_iso(F);
-      b_bar                      = Physics::Elasticity::Kinematics::b(F_bar);
-      p_tilde                    = p_tilde_in;
-      J_tilde                    = J_tilde_in;
-
-      AssertThrow(det_F > 0, ExcInternalError());
-    }
-
-    // The second function determines the Kirchhoff stress $\boldsymbol{\tau}
-    // = \boldsymbol{\tau}_{\textrm{iso}} + \boldsymbol{\tau}_{\textrm{vol}}$
-    SymmetricTensor<2, dim> get_tau()
-    {
-      return get_tau_iso() + get_tau_vol();
-    }
-
-    // The fourth-order elasticity tensor in the spatial setting
-    // $\mathfrak{c}$ is calculated from the SEF $\Psi$ as $ J
-    // \mathfrak{c}_{ijkl} = F_{iA} F_{jB} \mathfrak{C}_{ABCD} F_{kC} F_{lD}$
-    // where $ \mathfrak{C} = 4 \frac{\partial^2 \Psi(\mathbf{C})}{\partial
-    // \mathbf{C} \partial \mathbf{C}}$
-    SymmetricTensor<4, dim> get_Jc() const
-    {
-      return get_Jc_vol() + get_Jc_iso();
-    }
-
-    // Derivative of the volumetric free energy with respect to
-    // $\widetilde{J}$ return $\frac{\partial
-    // \Psi_{\text{vol}}(\widetilde{J})}{\partial \widetilde{J}}$
-    double get_dPsi_vol_dJ() const
-    {
-      return (kappa / 2.0) * (J_tilde - 1.0 / J_tilde);
-    }
-
-    // Second derivative of the volumetric free energy wrt $\widetilde{J}$. We
-    // need the following computation explicitly in the tangent so we make it
-    // public.  We calculate $\frac{\partial^2
-    // \Psi_{\textrm{vol}}(\widetilde{J})}{\partial \widetilde{J} \partial
-    // \widetilde{J}}$
-    double get_d2Psi_vol_dJ2() const
-    {
-      return ((kappa / 2.0) * (1.0 + 1.0 / (J_tilde * J_tilde)));
-    }
-
-    // The next few functions return various data that we choose to store with
-    // the material:
-    double get_det_F() const
-    {
-      return det_F;
-    }
-
-    double get_p_tilde() const
-    {
-      return p_tilde;
-    }
-
-    double get_J_tilde() const
-    {
-      return J_tilde;
-    }
-
-  protected:
-    // Define constitutive model parameters $\kappa$ (bulk modulus) and the
-    // neo-Hookean model parameter $c_1$:
-    const double kappa;
-    const double c_1;
-
-    // Model specific data that is convenient to store with the material:
-    double                  det_F;
-    double                  p_tilde;
-    double                  J_tilde;
-    SymmetricTensor<2, dim> b_bar;
-
-    // The following functions are used internally in determining the result
-    // of some of the public functions above. The first one determines the
-    // volumetric Kirchhoff stress $\boldsymbol{\tau}_{\textrm{vol}}$:
-    SymmetricTensor<2, dim> get_tau_vol() const
-    {
-      return p_tilde * det_F * Physics::Elasticity::StandardTensors<dim>::I;
-    }
-
-    // Next, determine the isochoric Kirchhoff stress
-    // $\boldsymbol{\tau}_{\textrm{iso}} =
-    // \mathcal{P}:\overline{\boldsymbol{\tau}}$:
-    SymmetricTensor<2, dim> get_tau_iso() const
-    {
-      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_bar();
-    }
-
-    // Then, determine the fictitious Kirchhoff stress
-    // $\overline{\boldsymbol{\tau}}$:
-    SymmetricTensor<2, dim> get_tau_bar() const
-    {
-      return 2.0 * c_1 * b_bar;
-    }
-
-    // Calculate the volumetric part of the tangent $J
-    // \mathfrak{c}_\textrm{vol}$:
-    SymmetricTensor<4, dim> get_Jc_vol() const
-    {
-      return p_tilde * det_F *
-             (Physics::Elasticity::StandardTensors<dim>::IxI -
-              (2.0 * Physics::Elasticity::StandardTensors<dim>::S));
-    }
-
-    // Calculate the isochoric part of the tangent $J
-    // \mathfrak{c}_\textrm{iso}$:
-    SymmetricTensor<4, dim> get_Jc_iso() const
-    {
-      const SymmetricTensor<2, dim> tau_bar = get_tau_bar();
-      const SymmetricTensor<2, dim> tau_iso = get_tau_iso();
-      const SymmetricTensor<4, dim> tau_iso_x_I =
-        outer_product(tau_iso, Physics::Elasticity::StandardTensors<dim>::I);
-      const SymmetricTensor<4, dim> I_x_tau_iso =
-        outer_product(Physics::Elasticity::StandardTensors<dim>::I, tau_iso);
-      const SymmetricTensor<4, dim> c_bar = get_c_bar();
-
-      return (2.0 / dim) * trace(tau_bar) *
-               Physics::Elasticity::StandardTensors<dim>::dev_P -
-             (2.0 / dim) * (tau_iso_x_I + I_x_tau_iso) +
-             Physics::Elasticity::StandardTensors<dim>::dev_P * c_bar *
-               Physics::Elasticity::StandardTensors<dim>::dev_P;
-    }
-
-    // Calculate the fictitious elasticity tensor $\overline{\mathfrak{c}}$.
-    // For the material model chosen this is simply zero:
-    SymmetricTensor<4, dim> get_c_bar() const
-    {
-      return SymmetricTensor<4, dim>();
-    }
   };
 
   // @sect3{Muscle tissue within a three-field formulation}
@@ -1435,10 +1206,6 @@ namespace Step44
     // dilation $\widetilde{J}$ field values.
     void setup_lqp(const Parameters::AllParameters &parameters)
     {
-      //material =
-      //  std::make_shared<Material_Compressible_Neo_Hook_Three_Field<dim>>(
-      //    parameters.mu, parameters.nu);
-      //update_values(Tensor<1,dim>(), Tensor<2, dim>(), 0.0, 1.0);
       material =
         std::make_shared<Muscle_Tissues_Three_Field<dim>>(
           parameters.type_of_simulation,
@@ -1580,7 +1347,6 @@ namespace Step44
     // materials are used in different regions of the domain, as well as the
     // inverse of the deformation gradient...
   private:
-    //std::shared_ptr<Material_Compressible_Neo_Hook_Three_Field<dim>> material;
     std::shared_ptr<Muscle_Tissues_Three_Field<dim>> material;
 
     Tensor<2, dim> F_inv;
