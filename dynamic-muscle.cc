@@ -257,6 +257,158 @@ namespace Step44
       prm.leave_subsection();
     }
 
+    // @sect4{Muscle properties}
+
+    struct MuscleProperties
+    {
+      double muscle_density;
+
+      // Fibre properties
+      double max_iso_stress_muscle; 
+      double kappa_muscle;
+      double max_strain_rate; 
+      double muscle_fibre_orientation_x; 
+      double muscle_fibre_orientation_y; 
+      double muscle_fibre_orientation_z; 
+
+      // Base material properties
+      double max_iso_stress_basematerial;
+      double muscle_basematerial_factor; 
+      double muscle_basemat_c1;
+      double muscle_basemat_c2;
+      double muscle_basemat_c3;
+
+      static void
+      declare_parameters(ParameterHandler &prm);
+
+      void
+      parse_parameters(ParameterHandler &prm);
+    };
+
+    void MuscleProperties::declare_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Materials");
+      {
+        prm.declare_entry("Muscle density", "1060",
+                          Patterns::Double(),
+                          "Muscle tissue density");
+
+        // Fibre properties
+        prm.declare_entry("Sigma naught muscle", "2.0e5",
+                          Patterns::Double(),
+                          "Muscle maximum isometric stress");
+
+        prm.declare_entry("Bulk modulus muscle", "1.0e6",
+                          Patterns::Double(),
+                          "Muscle kappa value");
+
+        prm.declare_entry("Max strain rate", "0.0",
+                          Patterns::Double(),
+                          "Maximum muscle fibre strain rate");
+        
+        prm.declare_entry("Muscle x component", "1.0",
+                          Patterns::Double(0.0),
+                          "Muscle fibre orientation x direction");
+
+        prm.declare_entry("Muscle y component", "0.0",
+                          Patterns::Double(0.0),
+                          "Muscle fibre orientation y direction");
+
+        prm.declare_entry("Muscle z component", "0.0",
+                          Patterns::Double(0.0),
+                          "Muscle fibre orientation z direction");
+        
+        // Base material properties
+        prm.declare_entry("Sigma naught base material", "2.0e5",
+                          Patterns::Double(),
+                          "Base material maximum isometric stress");
+        
+        prm.declare_entry("Muscle base material factor", "1.0e1",
+                          Patterns::Double(),
+                          "Fictitious muscle base material multiplier");
+        
+        prm.declare_entry("Muscle base material constant 1", "0.0",
+                          Patterns::Double(),
+                          "Muscle base material constant 1");
+
+        prm.declare_entry("Muscle base material constant 2", "0.0",
+                          Patterns::Double(),
+                          "Muscle base material constant 2");
+
+        prm.declare_entry("Muscle base material constant 3", "0.0",
+                          Patterns::Double(),
+                          "Muscle base material constant 3");
+      }
+      prm.leave_subsection();
+    }
+
+    void MuscleProperties::parse_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Materials");
+      {
+        muscle_density          = prm.get_double("Muscle density");
+
+        max_iso_stress_muscle   = prm.get_double("Sigma naught muscle");
+        kappa_muscle            = prm.get_double("Bulk modulus muscle");
+        max_strain_rate         = prm.get_double("Max strain rate");
+        muscle_fibre_orientation_x  = prm.get_double("Muscle x component"); 
+        muscle_fibre_orientation_y  = prm.get_double("Muscle y component"); 
+        muscle_fibre_orientation_z  = prm.get_double("Muscle z component");
+
+        max_iso_stress_basematerial = prm.get_double("Sigma naught base material");
+        muscle_basematerial_factor  = prm.get_double("Muscle base material factor");
+        muscle_basemat_c1 = prm.get_double("Muscle base material constant 1"); 
+        muscle_basemat_c2 = prm.get_double("Muscle base material constant 2"); 
+        muscle_basemat_c3 = prm.get_double("Muscle base material constant 3"); 
+      }
+      prm.leave_subsection();
+    }
+
+    // @sect4{Activation}
+
+    struct Activation
+    {
+        double activation_level;
+        double activation_start;
+        double activation_end;
+
+        static void
+        declare_parameters(ParameterHandler &prm);
+
+        void
+        parse_parameters(ParameterHandler &prm);
+    };
+
+    void Activation::declare_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Activation");
+      {
+        prm.declare_entry("Activation level", "0.0",
+                            Patterns::Double(),
+                            "Maximum activation level");
+        
+        prm.declare_entry("Activation start", "0.0",
+                            Patterns::Double(),
+                            "Beginning of activation ramp");
+
+        prm.declare_entry("Activation end", "1.0",
+                            Patterns::Double(),
+                            "End of activation ramp");
+      }
+      prm.leave_subsection();
+    }
+
+    void Activation::parse_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Activation");
+      {
+        activation_level = prm.get_double("Activation level");
+        activation_start = prm.get_double("Activation start");
+        activation_end   = prm.get_double("Activation end");
+      }
+      prm.leave_subsection();
+    }
+
     // @sect4{Linear solver}
 
     // Next, we choose both solver and preconditioner settings.  The use of an
@@ -335,6 +487,7 @@ namespace Step44
     // of iterations for the Newton-Raphson nonlinear solver.
     struct NonlinearSolver
     {
+      std::string  type_nonlinear_solver;
       unsigned int max_iterations_NR;
       double       tol_f;
       double       tol_u;
@@ -348,6 +501,10 @@ namespace Step44
     {
       prm.enter_subsection("Nonlinear solver");
       {
+        prm.declare_entry("Nonlinear solver type", "classicNewton",
+                          Patterns::Selection("classicNewton|acceleratedNewton"),
+                          "Type of nonlinear iteration");
+
         prm.declare_entry("Max iterations Newton-Raphson",
                           "10",
                           Patterns::Integer(0),
@@ -370,6 +527,7 @@ namespace Step44
     {
       prm.enter_subsection("Nonlinear solver");
       {
+        type_nonlinear_solver = prm.get("Nonlinear solver type");
         max_iterations_NR = prm.get_integer("Max iterations Newton-Raphson");
         tol_f             = prm.get_double("Tolerance force");
         tol_u             = prm.get_double("Tolerance displacement");
@@ -479,6 +637,8 @@ namespace Step44
     struct AllParameters : public FESystem,
                            public Geometry,
                            public Materials,
+                           public MuscleProperties,
+                           public Activation,
                            public LinearSolver,
                            public NonlinearSolver,
                            public Time,
@@ -505,6 +665,8 @@ namespace Step44
       FESystem::declare_parameters(prm);
       Geometry::declare_parameters(prm);
       Materials::declare_parameters(prm);
+      MuscleProperties::declare_parameters(prm);
+      Activation::declare_parameters(prm);
       LinearSolver::declare_parameters(prm);
       NonlinearSolver::declare_parameters(prm);
       Time::declare_parameters(prm);
@@ -516,6 +678,8 @@ namespace Step44
       FESystem::parse_parameters(prm);
       Geometry::parse_parameters(prm);
       Materials::parse_parameters(prm);
+      MuscleProperties::parse_parameters(prm);
+      Activation::parse_parameters(prm);
       LinearSolver::parse_parameters(prm);
       NonlinearSolver::parse_parameters(prm);
       Time::parse_parameters(prm);
@@ -761,6 +925,482 @@ namespace Step44
     }
   };
 
+  // @sect3{Muscle tissue within a three-field formulation}
+
+  // Muscle can be described as a quasi-incompressible fibre-reinforced
+  // material. Similar to the <code>Material_Compressible_Neo_Hook_Three_Field</code>
+  // in step-44, the material here can be described by a strain-energy 
+  // function $ \Psi = \Psi_{\text{iso}}(\overline{\mathbf{b}}) + 
+  // \Psi_{\text{vol}}(\widetilde{J})$, where $\Psi_{iso}$ is composed of a 
+  // fibre and a base material component $\Psi_{fibre}$ and $\Psi_{base}$, 
+  // respectively.
+  // 
+  // In the current configuration, the fibre component takes the form
+  // $\boldsymbol{\sigma} = \sigma_{Hill} \mathbf{a} \otimes \mathbf{a}$,
+  // where $\sigma_{Hill} = \sigma_0 \left\{ a(t) \sigma_L(\lambda) 
+  // \sigma_V(\epsilon) + \sigma_P(\lambda) \right\}$.
+  //
+  // In turn, the base material component is given by Yeoh SEF.
+  template <int dim>
+  class Muscle_Tissues_Three_Field
+  {
+  public:
+    Muscle_Tissues_Three_Field(const std::string type_contraction,
+                               const double max_iso_stress_muscle,
+                               const double kappa_muscle,
+                               const double max_strain_rate,
+                               const double initial_fibre_orientation_x,
+                               const double initial_fibre_orientation_y,
+                               const double initial_fibre_orientation_z,
+                               const double max_iso_stress_basematerial,
+                               const double muscle_basematerial_factor,
+                               const double muscle_basemat_c1,
+                               const double muscle_basemat_c2,
+                               const double muscle_basemat_c3)
+      :
+      type_of_contraction(type_contraction),
+      sigma_naught_muscle(max_iso_stress_muscle),
+      kappa_muscle(kappa_muscle),
+      strain_rate_naught(max_strain_rate),
+      initial_fibre_orientation({initial_fibre_orientation_x, 
+                                 initial_fibre_orientation_y, 
+                                 initial_fibre_orientation_z}),
+      sigma_naught_basematerial(max_iso_stress_basematerial),
+      s_base_muscle(muscle_basematerial_factor),
+      c1_basematerial_muscle(muscle_basemat_c1),
+      c2_basematerial_muscle(muscle_basemat_c2),
+      c3_basematerial_muscle(muscle_basemat_c3),
+      /* Physiological variables */
+      stretch_bar(1.0),
+      strain_rate_bar(0.0),
+      fibre_time_activation(0.0),
+      orientation(initial_fibre_orientation),
+      /* Mechanical variables */
+      det_F(1.0),
+      p_tilde(0.0),
+      J_tilde(1.0),
+      b_bar(Physics::Elasticity::StandardTensors<dim>::I),
+      trace_b_bar(3.0),
+      delta_t(0.0)
+      {
+        Assert(kappa_muscle > 0, 
+               ExcMessage("Bulk modulus must be positive!"));
+        Assert(initial_fibre_orientation.norm() != 0, 
+               ExcMessage("Initial fibre orientation must be a nonzero vector!"))
+      }
+
+    // We update the material model with various deformation dependent data
+    // based on $F$ and the pressure $\widetilde{p}$ and dilatation
+    // $\widetilde{J}$, and at the end of the function include a physical
+    // check for internal consistency:
+    void update_material_data(const Tensor<2, dim> &F,
+                              const double          p_tilde_in,
+                              const double          J_tilde_in,
+                              const double          fibre_time_activation_in,
+                              const Tensor<2, dim> &grad_velocity,
+                              const double          delta_t_in)
+    {
+      // First compute the determinant of the deformation tensor
+      // and stop the program immediately if it is negative.
+      det_F                      = determinant(F);
+      AssertThrow(det_F > 0, ExcInternalError());
+      
+      // Then, update the rest of the variables.
+      p_tilde                    = p_tilde_in;
+      J_tilde                    = J_tilde_in;
+      fibre_time_activation      = fibre_time_activation_in;
+      delta_t                    = delta_t_in;
+
+      const Tensor<2, dim> F_bar = Physics::Elasticity::Kinematics::F_iso(F);
+      b_bar                      = Physics::Elasticity::Kinematics::b(F_bar);
+      trace_b_bar                = first_invariant(b_bar);
+      
+      // Update stretch_bar and strain_rate_bar using the current Newton iterate.
+      const Tensor<2,dim> dev_symm_grad_velocity =
+                        Physics::Elasticity::StandardTensors<dim>::dev_P * 
+                        Physics::Elasticity::Kinematics::d(F,grad_velocity);
+      orientation     = F_bar * initial_fibre_orientation;
+      stretch_bar     = std::sqrt(orientation * orientation);
+      strain_rate_bar = (1.0 / strain_rate_naught) * 
+                         orientation * (dev_symm_grad_velocity * orientation) / stretch_bar;
+    }
+
+    // The second function determines the Kirchhoff stress $\boldsymbol{\tau}
+    // = \boldsymbol{\tau}_{\textrm{iso}} + \boldsymbol{\tau}_{\textrm{vol}}$
+    SymmetricTensor<2, dim> get_tau()
+    {
+      return get_tau_iso() + get_tau_vol();
+    }
+
+    // The fourth-order elasticity tensor in the spatial setting
+    // $\mathfrak{c}$ is calculated from the SEF $\Psi$ as $ J
+    // \mathfrak{c}_{ijkl} = F_{iA} F_{jB} \mathfrak{C}_{ABCD} F_{kC} F_{lD}$
+    // where $ \mathfrak{C} = 4 \frac{\partial^2 \Psi(\mathbf{C})}{\partial
+    // \mathbf{C} \partial \mathbf{C}}$
+    SymmetricTensor<4, dim> get_Jc() const
+    {
+      return get_Jc_vol() + get_Jc_iso();
+    }
+
+    // Derivative of the volumetric free energy with respect to
+    // $\widetilde{J}$ return $\frac{\partial
+    // \Psi_{\text{vol}}(\widetilde{J})}{\partial \widetilde{J}}$
+    double get_dPsi_vol_dJ() const
+    {
+      return (kappa_muscle / 2.0) * (J_tilde - 1.0 / J_tilde);
+    }
+
+    // Second derivative of the volumetric free energy wrt $\widetilde{J}$. We
+    // need the following computation explicitly in the tangent so we make it
+    // public.  We calculate $\frac{\partial^2
+    // \Psi_{\textrm{vol}}(\widetilde{J})}{\partial \widetilde{J} \partial
+    // \widetilde{J}}$
+    double get_d2Psi_vol_dJ2() const
+    {
+      return ((kappa_muscle / 2.0) * (1.0 + 1.0 / (J_tilde * J_tilde)));
+    }
+
+    // The next few functions return various data that we choose to store with
+    // the material:
+    double get_det_F() const
+    {
+      return det_F;
+    }
+
+    double get_p_tilde() const
+    {
+      return p_tilde;
+    }
+
+    double get_J_tilde() const
+    {
+      return J_tilde;
+    }
+
+  protected:
+    // Define constitutive model parameters
+    const std::string       type_of_contraction;
+    const double            sigma_naught_muscle;
+    const double            kappa_muscle;
+    const double            strain_rate_naught;
+    const Tensor<1, dim>    initial_fibre_orientation;
+    const double            sigma_naught_basematerial;
+    const double            s_base_muscle;
+    const double            c1_basematerial_muscle;
+    const double            c2_basematerial_muscle;
+    const double            c3_basematerial_muscle;
+
+    // Define physiological variables needed to evaluate the 
+    // constitutive models
+    double                  stretch_bar;
+    double                  strain_rate_bar;
+    double                  fibre_time_activation;
+    Tensor<1, dim>          orientation;
+
+    // Define mechanical variables
+    double                  det_F;
+    double                  p_tilde;
+    double                  J_tilde;
+    SymmetricTensor<2, dim> b_bar;
+    double                  trace_b_bar;
+    double                  delta_t;
+
+    // The following functions are used internally in determining the result
+    // of some of the public functions above. The first one determines the
+    // volumetric Kirchhoff stress $\boldsymbol{\tau}_{\textrm{vol}}$:
+    SymmetricTensor<2, dim> get_tau_vol() const
+    {
+      return p_tilde * det_F * Physics::Elasticity::StandardTensors<dim>::I;
+    }
+
+    // Next, determine the isochoric Kirchhoff stress
+    // $\boldsymbol{\tau}_{\textrm{iso}} =
+    // \mathcal{P}:\overline{\boldsymbol{\tau}}$:
+    SymmetricTensor<2, dim> get_tau_iso() const
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_bar();
+    }
+
+    // Just like the SEF of the system, the isochoric
+    // Kirchhoff stress is made of two parts:
+    // a fibre component and a base material component.
+    // In particular, we decide to subdivide the
+    // fibre component into its active and passive
+    // components.
+    SymmetricTensor<2,dim> get_tau_iso_muscle_active()
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_active_bar();
+    }
+
+    SymmetricTensor<2,dim> get_tau_iso_muscle_passive()
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_passive_bar();
+    }
+
+    SymmetricTensor<2,dim> get_tau_iso_muscle_basematerial()
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_basematerial_bar();
+    }
+
+    // Then, determine the fictitious Kirchhoff stress
+    // $\overline{\boldsymbol{\tau}}$:
+    SymmetricTensor<2, dim> get_tau_bar() const
+    {
+      return get_tau_muscle_active_bar() + get_tau_muscle_passive_bar() + get_tau_muscle_basematerial_bar();
+    }
+
+    // Determine the contributions from active and passive muscle fibres,
+    // as well as from the base material:
+    SymmetricTensor<2, dim> get_tau_muscle_active_bar() const
+    {
+      const double active_level = fibre_time_activation;
+      double sigma_active_muscle_fibre = 0.0;
+      
+      if (type_of_contraction == "quasi-static")
+        sigma_active_muscle_fibre = sigma_naught_muscle * active_level * get_length_stress() * 1.0;
+      else if (type_of_contraction == "dynamic")
+        sigma_active_muscle_fibre = sigma_naught_muscle * active_level * get_length_stress() * get_strain_rate_stress();
+      
+      return (1.0 / std::pow(stretch_bar, 2)) * sigma_active_muscle_fibre *
+               symmetrize(outer_product(orientation,orientation));
+    }
+
+    SymmetricTensor<2, dim> get_tau_muscle_passive_bar() const
+    {
+      const double sigma_passive_muscle_fibre = sigma_naught_muscle * get_passive_stress();
+      return (1.0 / std::pow(stretch_bar,2)) * sigma_passive_muscle_fibre * 
+                symmetrize(outer_product(orientation,orientation));
+    }
+
+    SymmetricTensor<2, dim> get_tau_muscle_basematerial_bar() const
+    {
+      return 2 * s_base_muscle * sigma_naught_basematerial * 
+            (3 * c3_basematerial_muscle * std::pow(trace_b_bar - 3,2)
+           + 2 * c2_basematerial_muscle * (trace_b_bar - 3) + c1_basematerial_muscle) * b_bar;
+    }
+
+    // Calculate the volumetric part of the tangent $J
+    // \mathfrak{c}_\textrm{vol}$:
+    SymmetricTensor<4, dim> get_Jc_vol() const
+    {
+      return p_tilde * det_F *
+             (Physics::Elasticity::StandardTensors<dim>::IxI -
+              (2.0 * Physics::Elasticity::StandardTensors<dim>::S));
+    }
+
+    // Calculate the isochoric part of the tangent $J
+    // \mathfrak{c}_\textrm{iso}$:
+    SymmetricTensor<4, dim> get_Jc_iso() const
+    {
+      const SymmetricTensor<2, dim> tau_bar = get_tau_bar();
+      const SymmetricTensor<2, dim> tau_iso = get_tau_iso();
+      const SymmetricTensor<4, dim> tau_iso_x_I =
+        outer_product(tau_iso, Physics::Elasticity::StandardTensors<dim>::I);
+      const SymmetricTensor<4, dim> I_x_tau_iso =
+        outer_product(Physics::Elasticity::StandardTensors<dim>::I, tau_iso);
+      const SymmetricTensor<4, dim> c_bar = get_c_bar();
+
+      return (2.0 / dim) * trace(tau_bar) *
+               Physics::Elasticity::StandardTensors<dim>::dev_P -
+             (2.0 / dim) * (tau_iso_x_I + I_x_tau_iso) +
+             Physics::Elasticity::StandardTensors<dim>::dev_P * c_bar *
+               Physics::Elasticity::StandardTensors<dim>::dev_P;
+    }
+
+    // Calculate the fictitious elasticity tensor $\overline{\mathfrak{c}}$.
+    // Note that because the material is no longer Neo-Hookean as in step-44,
+    // these tensors are no longer zero. Moreover, care must be taken when
+    // linearizing the elasticity equations as the velocity variable, which
+    // is only present in dynamic simulations, introduces additional terms
+    // to the tangent matrix.
+    SymmetricTensor<4, dim> get_c_bar() const
+    {
+      return get_c_muscle_active_bar() + get_c_muscle_passive_bar() + get_c_muscle_basematerial_bar();
+    }
+
+    SymmetricTensor<4, dim> get_c_muscle_active_bar() const
+    {
+      const double activation_level = fibre_time_activation;
+      const SymmetricTensor<2, dim> 
+        orientation_x_orientation = symmetrize(outer_product(orientation,orientation));
+
+      double first_term = 0.0, second_term = 0.0, third_term = 0.0;
+
+      if (type_of_contraction == "quasi-static")
+      {
+        first_term  = - (2 / std::pow( stretch_bar ,4))
+                    * sigma_naught_muscle
+                    * activation_level
+                    * get_length_stress()
+                    * 1.0;
+
+        second_term = (1 / std::pow( stretch_bar ,3))
+                    * sigma_naught_muscle
+                    * activation_level
+                    * get_dlength_stress_dstretch() * 1.0;
+        
+        third_term = 0.0;
+      }
+      else if (type_of_contraction == "dynamic")
+      {
+        first_term  = - (2 / std::pow( stretch_bar ,4))
+                      * sigma_naught_muscle
+                      * activation_level
+                      * get_length_stress()
+                      * get_strain_rate_stress();
+        
+        second_term =   (1 / std::pow( stretch_bar ,3))
+                      * sigma_naught_muscle
+                      * activation_level
+                      * get_dlength_stress_dstretch() * get_strain_rate_stress();
+        
+        third_term  =   (1 / std::pow( stretch_bar ,3))
+                      * sigma_naught_muscle
+                      * activation_level
+                      * get_length_stress() * get_dstrain_rate_stress_dstrain_rate() * (1.0 / delta_t);
+      }
+
+      return (first_term + second_term + third_term) * 
+        outer_product(orientation_x_orientation,orientation_x_orientation);
+    }
+
+    SymmetricTensor<4, dim> get_c_muscle_passive_bar() const
+    {
+      const SymmetricTensor<2, dim> 
+        orientation_x_orientation = symmetrize(outer_product(orientation,orientation));
+      
+      const double first_term  = - (2 / std::pow( stretch_bar ,4))
+                               * sigma_naught_muscle
+                               * get_passive_stress();
+      const double second_term =   (1 / std::pow( stretch_bar ,3))
+                                * sigma_naught_muscle
+                                * get_dpassive_stress_dstretch();
+
+      return (first_term + second_term) * 
+        outer_product(orientation_x_orientation,orientation_x_orientation);
+    }
+
+    SymmetricTensor<4, dim> get_c_muscle_basematerial_bar() const
+    {
+      return 4 * sigma_naught_basematerial * s_base_muscle * 
+            (6 * c3_basematerial_muscle * (trace_b_bar - 3)
+           + 2 * c2_basematerial_muscle) * outer_product(b_bar,b_bar);
+    }
+
+    // Finally, we define the stress relationships of muscle,
+    // along with their derivatives. These are the "stress"
+    // versions of the traditional force-length and 
+    // force-velocity relationships used in the traditional 
+    // Hill model of muscle.
+    double get_length_stress() const
+    {
+      if (stretch_bar >= 0.4 && stretch_bar <= 1.75)
+        return  (0.642587074375392 * sin(1.290128342448810 * stretch_bar + 0.629168420414746)
+                +0.325979591577056 * sin(5.308969899884336 * stretch_bar + -4.520101562237307)
+                +0.328204247867325 * sin(6.744187042136006 * stretch_bar + 1.689155892259429)
+                +0.015388902741327 * sin(19.823676877725276 * stretch_bar + -7.386155292116579)
+                +0.139240359517525 * sin(8.038287396059996 * stretch_bar + 2.543022326676525)
+                +0.001801867529599 * sin(32.237736486095052 * stretch_bar + -6.454098315528945)
+                +0.012560837549867 * sin(23.117614057963024 * stretch_bar + -2.643346778503341));
+      else
+        return 0.0;
+    }
+
+    double get_strain_rate_stress() const
+    {
+      if (strain_rate_bar < -1.2)
+        return 0.0;
+      else if (strain_rate_bar >= -1.2 && strain_rate_bar < -0.25)
+        return 0.25792669408341773*std::pow(strain_rate_bar+1.2,3)
+            + 0.14317485143460784*std::pow(strain_rate_bar+1.2,2)
+            + 0.0*(strain_rate_bar+1.2)
+            + 0.0;
+      else if (strain_rate_bar >= -0.25 && strain_rate_bar < 0.0)
+        return 29.825565394304522*std::pow(strain_rate_bar+0.25,3)
+            + -0.9435495605479662*std::pow(strain_rate_bar+0.25,2)
+            + 0.9703687419567255*(strain_rate_bar+0.25)
+            + 0.3503552027590582;
+      else if (strain_rate_bar >= 0.0 && strain_rate_bar < 0.05)
+        return -3165.6847983144276*std::pow(strain_rate_bar-0.0,3)
+            + 186.19612494819665*std::pow(strain_rate_bar-0.0,2)
+            + 6.090887473114851*(strain_rate_bar-0.0)
+            + 1.0;
+      else if (strain_rate_bar >= 0.05 && strain_rate_bar < 0.75)
+        return 0.6882206253246714*std::pow(strain_rate_bar-0.05,3)
+            + -1.413963071288272*std::pow(strain_rate_bar-0.05,2)
+            + 0.9678639805763023*(strain_rate_bar-0.05)
+            + 1.3743240862369306;
+      else// if (strain_rate_bar >= 0.75)
+          return 1.5950466421954534;
+    }
+
+    double get_passive_stress() const
+    {
+      if (stretch_bar >= 0 && stretch_bar <= 1.)
+        return 0.0;
+      else if (stretch_bar > 1. && stretch_bar <= 1.25)
+        return (2.353844827629192 * pow((stretch_bar - 1),2) + 0.0 * (stretch_bar - 1) + 0.0);
+      else if (stretch_bar > 1.25 && stretch_bar <= 1.5)
+        return (3.436356700507747 * pow((stretch_bar - 1.25),2) + 1.176922413814596 * (stretch_bar - 1.25) + 0.1471153017268245);
+      else if (stretch_bar > 1.5 && stretch_bar <= 1.65)
+        return (0.4274082856676522 * pow((stretch_bar - 1.5),2) + 2.8951007640684696 * (stretch_bar - 1.5) + 0.6561181989622077);
+      else if (stretch_bar > 1.65)
+        return (3.023323249768765 * (stretch_bar - 1.65) + 1.1);
+      else
+        return 0.0;
+    }
+
+    double get_dlength_stress_dstretch() const
+    {
+      if (stretch_bar >= 0.4 && stretch_bar <= 1.75)
+        return  (0.829019797142955 * cos(1.290128342448810 * stretch_bar + 0.629168420414746)
+                +1.730615839659180 * cos(5.308969899884336 * stretch_bar + -4.520101562237307)
+                +2.213470835640807 * cos(6.744187042136006 * stretch_bar + 1.689155892259429)
+                +0.305064635446807 * cos(19.823676877725276 * stretch_bar + -7.386155292116579)
+                +1.119254026932584 * cos(8.038287396059996 * stretch_bar + 2.543022326676525)
+                +0.058088130602064 * cos(32.237736486095052 * stretch_bar + -6.454098315528945)
+                +0.290376594722595 * cos(23.117614057963024 * stretch_bar + -2.643346778503341));
+      else
+        return 0.0;
+    }
+
+    double get_dstrain_rate_stress_dstrain_rate() const
+    {
+      if (strain_rate_bar < -1.2)
+        return  0.0;
+      else if (strain_rate_bar >= -1.2 && strain_rate_bar < -0.25)
+        return  (3*0.25792669408341773*std::pow(strain_rate_bar+1.2,2)
+                            + 2*0.14317485143460784*(strain_rate_bar+1.2) + 0.0);
+      else if (strain_rate_bar >= -0.25 && strain_rate_bar < 0.0)
+        return  (3*29.825565394304522*std::pow(strain_rate_bar+0.25,2)
+                            + 2*-0.9435495605479662*(strain_rate_bar+0.25) + 0.9703687419567255);
+      else if (strain_rate_bar >= 0.0 && strain_rate_bar < 0.05)
+        return  (3*-3165.6847983144276*std::pow(strain_rate_bar-0.0,2)
+                            + 2*186.19612494819665*(strain_rate_bar-0.0) + 6.090887473114851);
+      else if (strain_rate_bar >= 0.05 && strain_rate_bar < 0.75)
+        return  (3*0.6882206253246714*std::pow(strain_rate_bar-0.05,2)
+                            + 2*-1.413963071288272*(strain_rate_bar-0.05) + 0.9678639805763023); 
+      else// if (strain_rate_bar >= 0.75)
+        return  0.0;
+    }
+
+    double get_dpassive_stress_dstretch() const
+    {
+      if (stretch_bar >= 0 && stretch_bar <= 1.)
+        return 0.0;
+      else if (stretch_bar > 1. && stretch_bar <= 1.25)
+        return (2 * 2.353844827629192 * (stretch_bar - 1));
+      else if (stretch_bar > 1.25 && stretch_bar <= 1.5)
+        return (2 * 3.436356700507747 * (stretch_bar - 1.25) + 1.176922413814596);
+      else if (stretch_bar > 1.5 && stretch_bar <= 1.65)
+        return (2 * 0.4274082856676522 * (stretch_bar - 1.5) + 2.8951007640684696);
+      else if (stretch_bar > 1.65)
+        return (3.023323249768765);
+      else
+        return 0.0;
+    }
+  };
+
   // @sect3{Quadrature point history}
 
   // As seen in step-18, the <code> PointHistory </code> class offers a method
@@ -779,6 +1419,11 @@ namespace Step44
       , d2Psi_vol_dJ2(0.0)
       , dPsi_vol_dJ(0.0)
       , Jc(SymmetricTensor<4, dim>())
+      , displacement(Tensor<1, dim>())
+      , displacement_previous(Tensor<1, dim>())
+      , velocity_previous((Tensor<1, dim>()))
+      , grad_velocity((Tensor<2, dim>()))
+      , F_previous(Physics::Elasticity::StandardTensors<dim>::I)
     {}
 
     virtual ~PointHistory() = default;
@@ -790,10 +1435,31 @@ namespace Step44
     // dilation $\widetilde{J}$ field values.
     void setup_lqp(const Parameters::AllParameters &parameters)
     {
+      //material =
+      //  std::make_shared<Material_Compressible_Neo_Hook_Three_Field<dim>>(
+      //    parameters.mu, parameters.nu);
+      //update_values(Tensor<1,dim>(), Tensor<2, dim>(), 0.0, 1.0);
       material =
-        std::make_shared<Material_Compressible_Neo_Hook_Three_Field<dim>>(
-          parameters.mu, parameters.nu);
-      update_values(Tensor<1,dim>(), Tensor<2, dim>(), 0.0, 1.0);
+        std::make_shared<Muscle_Tissues_Three_Field<dim>>(
+          parameters.type_of_simulation,
+          parameters.max_iso_stress_muscle,
+          parameters.kappa_muscle,
+          parameters.max_strain_rate,
+          parameters.muscle_fibre_orientation_x,
+          parameters.muscle_fibre_orientation_y,
+          parameters.muscle_fibre_orientation_z,
+          parameters.max_iso_stress_basematerial,
+          parameters.muscle_basematerial_factor,
+          parameters.muscle_basemat_c1,
+          parameters.muscle_basemat_c2,
+          parameters.muscle_basemat_c3);
+      
+      update_values(Tensor<1,dim>(),    /*Displacement*/
+                    Tensor<2,dim>(),    /*Gradient of displacement*/
+                    0.0,                /*Pressure*/
+                    1.0,                /*Dilation*/
+                    0.0,                /*Activation*/
+                    parameters.delta_t  /*Time step size*/);
     }
 
     // To this end, we calculate the deformation gradient $\mathbf{F}$ from
@@ -813,10 +1479,18 @@ namespace Step44
     void update_values(const Tensor<1, dim> &u_n,
                        const Tensor<2, dim> &Grad_u_n,
                        const double          p_tilde,
-                       const double          J_tilde)
+                       const double          J_tilde,
+                       const double          fibre_activation_time,
+                       const double          delta_t)
     {
       const Tensor<2, dim> F = Physics::Elasticity::Kinematics::F(Grad_u_n);
-      material->update_material_data(F, p_tilde, J_tilde);
+      grad_velocity = (F - F_previous) / delta_t;
+      material->update_material_data(F, 
+                                     p_tilde, 
+                                     J_tilde,
+                                     fibre_activation_time,
+                                     grad_velocity,
+                                     delta_t);
       displacement = u_n;
 
       // The material has been updated so we now calculate the Kirchhoff
@@ -836,6 +1510,8 @@ namespace Step44
     {
       velocity_previous     = (displacement - displacement_previous) / time_object.get_delta_t();
       displacement_previous = displacement;
+      // We also update the F_previous variable, needed to compute the current grad_velocity;
+      F_previous            = invert(F_inv);
     }
 
     // We offer an interface to retrieve certain data.  Here are the kinematic
@@ -904,7 +1580,8 @@ namespace Step44
     // materials are used in different regions of the domain, as well as the
     // inverse of the deformation gradient...
   private:
-    std::shared_ptr<Material_Compressible_Neo_Hook_Three_Field<dim>> material;
+    //std::shared_ptr<Material_Compressible_Neo_Hook_Three_Field<dim>> material;
+    std::shared_ptr<Muscle_Tissues_Three_Field<dim>> material;
 
     Tensor<2, dim> F_inv;
 
@@ -919,6 +1596,8 @@ namespace Step44
     Tensor<1, dim> displacement;
     Tensor<1, dim> displacement_previous;
     Tensor<1, dim> velocity_previous;
+    Tensor<2, dim> grad_velocity; // This variable is updated at each Newton iteration
+    Tensor<2, dim> F_previous; // This variable is updated at each time step
   };
 
   // @sect3{PrescribedDisplacement and IncrementalDisplacement classes}
@@ -1036,6 +1715,42 @@ namespace Step44
   {
     return (component == 0) ? (u_dir_n - u_dir_n_1) : 0.0;
   }
+
+  // Activation profile
+  class Activation
+  {
+  public:
+    Activation(const double activation_start,
+               const double activation_end,
+               const double activation_level)
+      :
+      activation_start(activation_start),
+      activation_end(activation_end),
+      activation_level(activation_level)
+    {}
+
+    double value(const double t) const
+    {
+      double a = 0;
+
+      if (activation_level != 0)
+      {
+        if (t <= activation_start)
+          a = 0.0;
+        else if (t > activation_start && t < activation_end)
+          a = (activation_level/100) / (activation_end - activation_start) * (t - activation_start);
+        else if (t >= activation_end)
+          a = (activation_level/100);
+      }
+
+      return a;
+    }
+  
+  private:
+    const double activation_start;
+    const double activation_end;
+    const double activation_level;
+  };
 
 
   // @sect3{Quasi-static quasi-incompressible finite-strain solid}
@@ -1164,6 +1879,9 @@ namespace Step44
     // Create pulling profile
     PrescribedDisplacement<dim> u_dir;
 
+    // Create activation profile
+    Activation activation_function;
+
     // A storage object for quadrature point information. As opposed to
     // step-18, deal.II's native quadrature point data manager is employed
     // here.
@@ -1291,6 +2009,9 @@ namespace Step44
             parameters.pull_strain,
             parameters.pull_strain_rate,
             parameters.length * parameters.scale)
+    , activation_function(parameters.activation_start,
+                          parameters.activation_end,
+                          parameters.activation_level)
     , degree(parameters.poly_degree)
     ,
     // The Finite Element System is composed of dim continuous displacement
@@ -1918,7 +2639,9 @@ namespace Step44
       lqph[q_point]->update_values(scratch.solution_values_u_total[q_point],
                                    scratch.solution_grads_u_total[q_point],
                                    scratch.solution_values_p_total[q_point],
-                                   scratch.solution_values_J_total[q_point]);
+                                   scratch.solution_values_J_total[q_point],
+                                   activation_function.value(time.current()),
+                                   time.get_delta_t());
   }
 
   // This is a dummy structure that is required for Workstream.
@@ -1987,6 +2710,12 @@ namespace Step44
               << "s" << std::endl;
 
     BlockVector<double> newton_update(dofs_per_block);
+
+    // Additional variables required for accelerated Newton method
+    BlockVector<double> newton_update_previous(dofs_per_block);
+    BlockVector<double> solution_k_previous(solution_n); 
+    BlockVector<double> solution_k(dofs_per_block); 
+    
 
     error_residual.reset();
     error_residual_0.reset();
@@ -2063,7 +2792,43 @@ namespace Step44
         // the actual update of the solution increment for the current time
         // step, update all quadrature point information pertaining to
         // this new displacement and stress state and continue iterating:
-        solution_delta += newton_update;
+        if (parameters.type_nonlinear_solver == "classicNewton")
+        {
+          solution_delta += newton_update;
+        }
+        else if (parameters.type_nonlinear_solver == "acceleratedNewton")
+        {
+          // Accelerated Newton-Anderson update with depth 1
+          // D. G. Anderson. Iterative Procedures for Nonlinear Integral Equations. 
+          // Journal of the Association for Computing Machinery 12 (1965), no. 4, 547–560. 
+          // https://doi.org/10.1145/321296.321305
+          // or (cleaner equations)
+          // S. Pollock and H. Schwartz. Benchmarking results for the Newton-Anderson method.
+          // Results in Applied Mathematics 8 (2020), 100095. 
+          // https://doi.org/10.1016/j.rinam.2020.100095
+          if (newton_iteration == 0)
+          {
+            // Usual Newton update for the very first iteration
+            solution_delta += newton_update;
+            solution_k = solution_n + solution_delta;
+            newton_update_previous = newton_update;
+          }
+          else
+          {
+            // Now use the different direction
+            const BlockVector<double> newton_delta = newton_update - newton_update_previous;
+            const double gamma_update = (newton_update * newton_delta)
+                                            / (newton_delta * newton_delta);
+            solution_k = (1-gamma_update) * (solution_k + newton_update) + gamma_update * (solution_k_previous + newton_update_previous);
+            solution_delta = solution_k - solution_n;
+            // Update previous variables
+            solution_k_previous = solution_k;
+            newton_update_previous = newton_update;
+          }
+        }
+        else
+            Assert (false, ExcMessage("Non-linear solver type not implemented"));
+
         update_qph_incremental(solution_delta);
 
         std::cout << " | " << std::fixed << std::setprecision(3) << std::setw(7)
