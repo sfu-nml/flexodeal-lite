@@ -43,6 +43,7 @@
 #include <deal.II/grid/tria.h>
 
 #include <deal.II/fe/fe_dgp_monomial.h>
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_tools.h>
@@ -855,6 +856,16 @@ namespace Flexodeal
       return J_tilde;
     }
 
+    double get_stretch() const
+    {
+      return std::pow(det_F, 1/3) * stretch_bar;
+    }
+
+    Tensor<1, dim> get_orientation() const
+    {
+      return std::pow(det_F, 1/3) * orientation;
+    }
+
   protected:
     // Define constitutive model parameters
     const std::string       type_of_contraction;
@@ -1300,6 +1311,16 @@ namespace Flexodeal
       return material->get_det_F();
     }
 
+    double get_stretch() const
+    {
+      return material->get_stretch();
+    }
+
+    Tensor<1, dim> get_orientation() const
+    {
+      return material->get_orientation();
+    }
+
     const Tensor<2, dim> &get_F_inv() const
     {
       return F_inv;
@@ -1633,6 +1654,7 @@ namespace Flexodeal
     get_total_solution(const BlockVector<double> &solution_delta) const;
 
     void output_results() const;
+    void output_along_fibre_stretch() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -1928,6 +1950,7 @@ namespace Flexodeal
         dof_handler, constraints, QGauss<dim>(degree + 2), J_mask, solution_n);
     }
     output_results();
+    output_along_fibre_stretch();
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -1949,6 +1972,7 @@ namespace Flexodeal
         // ...and plot the results before moving on happily to the next time
         // step:
         output_results();
+        output_along_fibre_stretch();
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
@@ -4235,6 +4259,97 @@ namespace Flexodeal
     data_out.write_vtu(output);
   }
 
+  // @sect4{Solid::output_along_fibre_stretch}
+
+  // This function serves as an example of how to
+  // transfer quadrature-point data into a global
+  // object that can be treated in the same way
+  // as the solution vector.
+  template <int dim>
+  void Solid<dim>::output_along_fibre_stretch() const
+  {
+    // Create data vectors
+    FE_DGQ<dim> fe_stretch(degree);
+    DoFHandler<dim> dof_handler_stretch(triangulation);
+    dof_handler_stretch.distribute_dofs(fe_stretch);
+
+    // First those related to the stretch...
+    Vector<double> stretch, local_stretch_qp, local_stretch_dof;
+    stretch.reinit(dof_handler_stretch.n_dofs());
+    local_stretch_qp.reinit(n_q_points);
+    local_stretch_dof.reinit(fe_stretch.n_dofs_per_cell());
+
+    // Then those related to the orientation vector.
+    // According to step-18, we can only project scalar
+    // quantities, therefore we store the orientation
+    // as a "vector of Vectors", which we can then
+    // attach to a DataOut object component by component.
+    std::vector<Vector<double>> 
+    orientation(dim, Vector<double>()),
+    local_orientation_qp(dim, Vector<double>()), 
+    local_orientation_dof(dim, Vector<double>());
+    for (unsigned int i = 0; i < dim; ++i)
+    {
+      orientation[i].reinit(dof_handler_stretch.n_dofs());
+      local_orientation_qp[i].reinit(n_q_points);
+      local_orientation_dof[i].reinit(fe_stretch.n_dofs_per_cell());
+    }
+
+    // Compute the projection matrix first
+    FullMatrix<double> qp_to_dof_matrix(fe_stretch.dofs_per_cell, n_q_points);
+
+    FETools::compute_projection_from_quadrature_points_matrix(fe_stretch,
+                                                              qf_cell,
+                                                              qf_cell,
+                                                              qp_to_dof_matrix);
+
+    // Then compute the projection (cell-wise)
+    for (const auto &cell : dof_handler_stretch.active_cell_iterators())
+    {
+      const std::vector<std::shared_ptr<const PointHistory<dim>>> 
+      lqph = quadrature_point_history.get_data(cell);
+
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      {
+        const double                     lambda = lqph[q_point]->get_stretch();
+        local_stretch_qp[q_point] = lambda;
+
+        const Tensor<1, dim> orientation_vector = lqph[q_point]->get_orientation();
+        for (unsigned int i = 0; i < dim; ++i)
+          local_orientation_qp[i](q_point) = orientation_vector[i];
+      }
+
+      qp_to_dof_matrix.vmult(local_stretch_dof, local_stretch_qp);
+      cell->set_dof_values(local_stretch_dof, stretch);
+
+      for (unsigned int i = 0; i < dim; ++i)
+      {
+        qp_to_dof_matrix.vmult(local_orientation_dof[i], local_orientation_qp[i]);
+        cell->set_dof_values(local_orientation_dof[i], orientation[i]);
+      }
+    }
+
+    // Store values
+    DataOut<dim> data_out;
+    data_out.attach_dof_handler(dof_handler_stretch);
+    data_out.add_data_vector(stretch, "stretch");
+    data_out.add_data_vector(orientation[0],"orientation_x");
+    data_out.add_data_vector(orientation[1],"orientation_y");
+    data_out.add_data_vector(orientation[2],"orientation_z");
+    
+    Vector<double> soln(solution_n.size());
+    for (unsigned int i = 0; i < soln.size(); ++i)
+      soln(i) = solution_n(i);
+    MappingQEulerian<dim> q_mapping(degree, dof_handler, soln);
+    data_out.build_patches(q_mapping, degree);
+
+    std::ostringstream filename;
+    filename << save_dir << "/stretch-" << dim << "d-" 
+             << std::setfill('0') << std::setw(3) << time.get_timestep() << ".vtu";
+    
+    std::ofstream output(filename.str().c_str());
+    data_out.write_vtu(output);
+  }
 } // namespace Flexodeal
 
 
