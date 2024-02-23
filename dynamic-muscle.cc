@@ -811,6 +811,45 @@ namespace Flexodeal
       return get_tau_iso() + get_tau_vol();
     }
 
+    // The following set of functions determine each contribution to the
+    // Kirchhoff stress in detail. We make this functions public as they
+    // need to be accessed by PointHistory when computing forces and 
+    // energies. The first one determines the volumetric Kirchhoff stress 
+    // $\boldsymbol{\tau}_{\textrm{vol}}$:
+    SymmetricTensor<2, dim> get_tau_vol() const
+    {
+      return p_tilde * det_F * Physics::Elasticity::StandardTensors<dim>::I;
+    }
+
+    // Next, determine the isochoric Kirchhoff stress
+    // $\boldsymbol{\tau}_{\textrm{iso}} =
+    // \mathcal{P}:\overline{\boldsymbol{\tau}}$:
+    SymmetricTensor<2, dim> get_tau_iso() const
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_bar();
+    }
+
+    // Just like the SEF of the system, the isochoric
+    // Kirchhoff stress is made of two parts:
+    // a fibre component and a base material component.
+    // In particular, we decide to subdivide the
+    // fibre component into its active and passive
+    // components.
+    SymmetricTensor<2,dim> get_tau_iso_muscle_active()
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_active_bar();
+    }
+
+    SymmetricTensor<2,dim> get_tau_iso_muscle_passive()
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_passive_bar();
+    }
+
+    SymmetricTensor<2,dim> get_tau_iso_muscle_basematerial()
+    {
+      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_basematerial_bar();
+    }
+
     // The fourth-order elasticity tensor in the spatial setting
     // $\mathfrak{c}$ is calculated from the SEF $\Psi$ as $ J
     // \mathfrak{c}_{ijkl} = F_{iA} F_{jB} \mathfrak{C}_{ABCD} F_{kC} F_{lD}$
@@ -895,43 +934,8 @@ namespace Flexodeal
     double                  delta_t;
 
     // The following functions are used internally in determining the result
-    // of some of the public functions above. The first one determines the
-    // volumetric Kirchhoff stress $\boldsymbol{\tau}_{\textrm{vol}}$:
-    SymmetricTensor<2, dim> get_tau_vol() const
-    {
-      return p_tilde * det_F * Physics::Elasticity::StandardTensors<dim>::I;
-    }
-
-    // Next, determine the isochoric Kirchhoff stress
-    // $\boldsymbol{\tau}_{\textrm{iso}} =
-    // \mathcal{P}:\overline{\boldsymbol{\tau}}$:
-    SymmetricTensor<2, dim> get_tau_iso() const
-    {
-      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_bar();
-    }
-
-    // Just like the SEF of the system, the isochoric
-    // Kirchhoff stress is made of two parts:
-    // a fibre component and a base material component.
-    // In particular, we decide to subdivide the
-    // fibre component into its active and passive
-    // components.
-    SymmetricTensor<2,dim> get_tau_iso_muscle_active()
-    {
-      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_active_bar();
-    }
-
-    SymmetricTensor<2,dim> get_tau_iso_muscle_passive()
-    {
-      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_passive_bar();
-    }
-
-    SymmetricTensor<2,dim> get_tau_iso_muscle_basematerial()
-    {
-      return Physics::Elasticity::StandardTensors<dim>::dev_P * get_tau_muscle_basematerial_bar();
-    }
-
-    // Then, determine the fictitious Kirchhoff stress
+    // of some of the public functions above.
+    // First, determine the fictitious Kirchhoff stress
     // $\overline{\boldsymbol{\tau}}$:
     SymmetricTensor<2, dim> get_tau_bar() const
     {
@@ -1205,11 +1209,17 @@ namespace Flexodeal
     PointHistory()
       : F_inv(Physics::Elasticity::StandardTensors<dim>::I)
       , tau(SymmetricTensor<2, dim>())
+      , tau_vol(SymmetricTensor<2,dim>())
+      , tau_iso(SymmetricTensor<2,dim>())
+      , tau_iso_muscle_active(SymmetricTensor<2,dim>())
+      , tau_iso_muscle_passive(SymmetricTensor<2,dim>())
+      , tau_iso_muscle_basematerial(SymmetricTensor<2,dim>())
       , d2Psi_vol_dJ2(0.0)
       , dPsi_vol_dJ(0.0)
       , Jc(SymmetricTensor<4, dim>())
       , displacement(Tensor<1, dim>())
       , displacement_previous(Tensor<1, dim>())
+      , grad_displacement(Tensor<2,dim>())
       , velocity_previous((Tensor<1, dim>()))
       , grad_velocity((Tensor<2, dim>()))
       , F_previous(Physics::Elasticity::StandardTensors<dim>::I)
@@ -1277,6 +1287,7 @@ namespace Flexodeal
                                      grad_velocity,
                                      delta_t);
       displacement = u_n;
+      grad_displacement = Grad_u_n;
 
       // The material has been updated so we now calculate the Kirchhoff
       // stress $\mathbf{\tau}$, the tangent $J\mathfrak{c}$ and the first and
@@ -1286,6 +1297,12 @@ namespace Flexodeal
       // frequently use it:
       F_inv         = invert(F);
       tau           = material->get_tau();
+      tau                         = material->get_tau();
+      tau_vol                     = material->get_tau_vol();
+      tau_iso                     = material->get_tau_iso();
+      tau_iso_muscle_active       = material->get_tau_iso_muscle_active();
+      tau_iso_muscle_passive      = material->get_tau_iso_muscle_passive();
+      tau_iso_muscle_basematerial = material->get_tau_iso_muscle_basematerial();
       Jc            = material->get_Jc();
       dPsi_vol_dJ   = material->get_dPsi_vol_dJ();
       d2Psi_vol_dJ2 = material->get_d2Psi_vol_dJ2();
@@ -1337,6 +1354,11 @@ namespace Flexodeal
       return displacement_previous;
     }
 
+    const Tensor<2, dim> &get_grad_displacement() const
+    {
+      return grad_displacement;
+    }
+
     const Tensor<1, dim> &get_velocity_previous() const
     {
       return velocity_previous;
@@ -1352,6 +1374,31 @@ namespace Flexodeal
     const SymmetricTensor<2, dim> &get_tau() const
     {
       return tau;
+    }
+
+    const SymmetricTensor<2, dim> &get_tau_vol() const
+    {
+      return tau_vol;
+    }
+
+    const SymmetricTensor<2, dim> &get_tau_iso() const
+    {
+      return tau_iso;
+    }
+
+    const SymmetricTensor<2, dim> &get_tau_iso_muscle_active() const
+    {
+      return tau_iso_muscle_active;
+    }
+
+    const SymmetricTensor<2, dim> &get_tau_iso_muscle_passive() const
+    {
+      return tau_iso_muscle_passive;
+    }
+
+    const SymmetricTensor<2, dim> &get_tau_iso_muscle_basematerial() const
+    {
+      return tau_iso_muscle_basematerial;
     }
 
     double get_dPsi_vol_dJ() const
@@ -1381,6 +1428,11 @@ namespace Flexodeal
 
     // ... and stress-type variables along with the tangent $J\mathfrak{c}$:
     SymmetricTensor<2, dim> tau;
+    SymmetricTensor<2, dim> tau_vol;
+    SymmetricTensor<2, dim> tau_iso;
+    SymmetricTensor<2, dim> tau_iso_muscle_active;
+    SymmetricTensor<2, dim> tau_iso_muscle_passive;
+    SymmetricTensor<2, dim> tau_iso_muscle_basematerial;
     double                  d2Psi_vol_dJ2;
     double                  dPsi_vol_dJ;
 
@@ -1389,6 +1441,7 @@ namespace Flexodeal
     // Dynamic variables
     Tensor<1, dim> displacement;
     Tensor<1, dim> displacement_previous;
+    Tensor<2, dim> grad_displacement; // This variable is needed to compute energies
     Tensor<1, dim> velocity_previous;
     Tensor<2, dim> grad_velocity; // This variable is updated at each Newton iteration
     Tensor<2, dim> F_previous; // This variable is updated at each time step
@@ -1658,6 +1711,9 @@ namespace Flexodeal
 
     void output_results() const;
     void output_along_fibre_stretch() const;
+    void output_energies() const;
+    void output_forces() const;
+    void output_mean_stretch_and_pennation() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -1956,6 +2012,9 @@ namespace Flexodeal
     }
     output_results();
     output_along_fibre_stretch();
+    output_energies();
+    output_forces();
+    output_mean_stretch_and_pennation();
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -1978,6 +2037,9 @@ namespace Flexodeal
         // step:
         output_results();
         output_along_fibre_stretch();
+        output_energies();
+        output_forces();
+        output_mean_stretch_and_pennation();
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
@@ -2253,7 +2315,11 @@ namespace Flexodeal
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
 
     vol_reference = GridTools::volume(triangulation);
-    std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
+    std::cout << "Geometry:"
+              << "\n\t Reference volume: " << vol_reference << " m^3"
+              << "\n\t Mass:             " << vol_reference * parameters.muscle_density << " kg"
+              << "\n" << std::endl;
+
 
     /*
       BLOCK OF CODE REMOVED. MUSCLE BLOCK WON'T HAVE ID = 6 FOR NOW.
@@ -2405,6 +2471,14 @@ namespace Flexodeal
     // point history:
     setup_qph();
 
+    std::cout << "Quadrature point data has been set up:"
+              << "\n\t Linear solver: " << parameters.type_lin 
+              << "\n\t Non-linear solver: " << parameters.type_nonlinear_solver << "\n"
+              << std::endl;
+
+    std::cout << "Running " << parameters.type_of_simulation << " muscle contraction" 
+              << std::endl;
+
     timer.leave_subsection();
   }
 
@@ -2450,7 +2524,7 @@ namespace Flexodeal
   template <int dim>
   void Solid<dim>::setup_qph()
   {
-    std::cout << "    Setting up quadrature point data..." << std::endl;
+    std::cout << "\n    Setting up quadrature point data...\n" << std::endl;
 
     quadrature_point_history.initialize(triangulation.begin_active(),
                                         triangulation.end(),
@@ -4382,20 +4456,347 @@ namespace Flexodeal
     std::ofstream output(filename.str().c_str());
     data_out.write_vtu(output);
   }
+  
+  // @sect4{Solid::output_energies}
+  template <int dim>
+  void Solid<dim>::output_energies() const
+  {
+    double kinetic_energy = 0.0, energy_int = 0.0, energy_vol = 0.0, energy_iso = 0.0,
+    energy_muscle_base = 0.0, energy_muscle_passive = 0.0, energy_muscle_active = 0.0;
+
+    FEValues<dim> fe_values(fe, qf_cell,
+                            update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+
+      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+          quadrature_point_history.get_data(cell);
+      Assert(lqph.size() == n_q_points, ExcInternalError());
+
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      {
+        const double det_F                              = lqph[q_point]->get_det_F();
+        const Tensor<2, dim> F_inv                      = lqph[q_point]->get_F_inv();
+        const SymmetricTensor<2, dim> tau               = lqph[q_point]->get_tau();
+        const SymmetricTensor<2, dim> tau_vol           = lqph[q_point]->get_tau_vol();
+        const SymmetricTensor<2, dim> tau_iso           = lqph[q_point]->get_tau_iso();
+        const SymmetricTensor<2, dim> tau_muscle_base   = lqph[q_point]->get_tau_iso_muscle_basematerial();
+        const SymmetricTensor<2, dim> tau_muscle_passive= lqph[q_point]->get_tau_iso_muscle_passive();
+        const SymmetricTensor<2, dim> tau_muscle_active = lqph[q_point]->get_tau_iso_muscle_active();
+        const Tensor<2, dim> grad_displacement          = lqph[q_point]->get_grad_displacement();
+        const SymmetricTensor<2,dim> symm_grad_displacement = symmetrize(grad_displacement * F_inv);
+        const double JxW = fe_values.JxW(q_point);
+        // At this point, after solving the nonlinear system and before going into the next time step,
+        // the variable velocity_previous contains the information of the *current* velocity,
+        // so it is safe to call this variable velocity_current in this context.
+        const Tensor<1, dim> velocity_current = lqph[q_point]->get_velocity_previous();
+        
+        kinetic_energy += 0.5 * det_F * parameters.muscle_density * velocity_current * velocity_current * JxW;
+        energy_int += symm_grad_displacement * tau * JxW;
+        energy_vol += symm_grad_displacement * tau_vol * JxW;
+        energy_iso += symm_grad_displacement * tau_iso * JxW;
+        energy_muscle_base += symm_grad_displacement * tau_muscle_base * JxW;
+        energy_muscle_passive += symm_grad_displacement * tau_muscle_passive * JxW;
+        energy_muscle_active += symm_grad_displacement * tau_muscle_active * JxW;
+      }
+    }
+
+    const double current_volume = compute_vol_current();
+
+    // Display energies
+    std::cout << "\n"
+              << "Energies of the system  [J/m^3]:" << "\n"
+              << "Kinetic energy:" << "\t\t" << kinetic_energy / current_volume << "\n"
+              << "Internal energy:" << "\t" << energy_int / current_volume << "\n"
+              << "Vol energy:" << "\t\t" << energy_vol / current_volume << "\n"
+              << "Iso energy:" << "\t\t" << energy_iso / current_volume << "\n"
+              << "Musclebase energy:" << "\t" << energy_muscle_active / current_volume << "\n"
+              << "Musclepassive energy:" << "\t" << energy_muscle_passive / current_volume << "\n"
+              << "Muscleactive energy:" << "\t" << energy_muscle_base / current_volume << "\n"
+              << std::endl;
+
+    // Output time series
+    std::ostringstream filename;
+    filename << save_dir << "/energy_data-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      output.open(filename.str());
+      output << "Time [s]"
+             << "," << "Kinetic [J/m^3]"
+             << "," << "Internal [J/m^3]"
+             << "," << "Volumetric [J/m^3]"
+             << "," << "Isochoric [J/m^3]"
+             << "," << "Muscle active [J/m^3]"
+             << "," << "Muscle passive [J/m^3]"
+             << "," << "Muscle base [J/m^3]"
+             << "," << "Volume [m^3]" << "\n";
+    }
+      
+    else
+      output.open(filename.str(), std::ios_base::app);
+      
+    output << time.current() << std::fixed 
+           << std::setprecision(4) << std::scientific
+           << "," << kinetic_energy / current_volume
+           << "," << energy_int / current_volume
+           << "," << energy_vol / current_volume
+           << "," << energy_iso / current_volume
+           << "," << energy_muscle_active / current_volume
+           << "," << energy_muscle_passive / current_volume
+           << "," << energy_muscle_base / current_volume
+           << "," << current_volume << "\n";
+  }
+
+  // @sect4{Solid::output_forces}
+  template <int dim>
+  void Solid<dim>::output_forces() const
+  {
+    std::map<unsigned int, Tensor<1,dim>> force_total, force_vol, force_iso,
+    force_muscle_base, force_muscle_passive, force_muscle_active;
+        
+    FEValues<dim> fe_values(fe, qf_cell,
+                                update_values | update_gradients |
+                                update_quadrature_points | update_JxW_values);
+    FEFaceValues<dim> fe_face_values(fe, qf_face,
+                                      update_quadrature_points | update_JxW_values |
+                                      update_normal_vectors);
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+
+      for (unsigned int face = 0; face < GeometryInfo<dim>::faces_per_cell; ++face)
+      {
+        if (cell->face(face)->at_boundary())
+        {
+          fe_face_values.reinit(cell, face);
+          const std::vector<std::shared_ptr<const PointHistory<dim> > > 
+              lqph = quadrature_point_history.get_data(cell);
+          Assert(lqph.size() == n_q_points, ExcInternalError());
+
+          // Get boundary id
+          const unsigned int bdy_id = cell->face(face)->boundary_id();
+
+          for (unsigned int f_q_point = 0; f_q_point < n_q_points_f; ++f_q_point)
+          {
+            const Tensor<1, dim> &N = fe_face_values.normal_vector(f_q_point);
+            const double JxW        = fe_face_values.JxW(f_q_point);
+
+            const Tensor<2, dim> F_inv              = lqph[f_q_point]->get_F_inv();
+            const Tensor<2, dim> tau                = lqph[f_q_point]->get_tau();
+            const Tensor<2, dim> tau_vol            = lqph[f_q_point]->get_tau_vol();
+            const Tensor<2, dim> tau_iso            = lqph[f_q_point]->get_tau_iso();
+            const Tensor<2, dim> tau_muscle_base    = lqph[f_q_point]->get_tau_iso_muscle_basematerial();
+            const Tensor<2, dim> tau_muscle_passive = lqph[f_q_point]->get_tau_iso_muscle_passive();
+            const Tensor<2, dim> tau_muscle_active  = lqph[f_q_point]->get_tau_iso_muscle_active();
+            
+            force_total[bdy_id]         += 0.5 * (tau + transpose(tau)) * transpose(F_inv) * N * JxW;
+            force_vol[bdy_id]           += 0.5 * (tau_vol + transpose(tau_vol)) * transpose(F_inv) * N * JxW;
+            force_iso[bdy_id]           += 0.5 * (tau_iso + transpose(tau_iso)) * transpose(F_inv) * N * JxW;
+            force_muscle_base[bdy_id]   += 0.5 * (tau_muscle_base + transpose(tau_muscle_base)) * transpose(F_inv) * N * JxW;
+            force_muscle_passive[bdy_id]+= 0.5 * (tau_muscle_passive + transpose(tau_muscle_passive)) * transpose(F_inv) * N * JxW;
+            force_muscle_active[bdy_id] += 0.5 * (tau_muscle_active + transpose(tau_muscle_active)) * transpose(F_inv) * N * JxW;
+          }
+        }
+      }
+    }
+
+    const double current_volume = compute_vol_current();
+
+    // Pretty display
+    static const unsigned int l_width = 17 + 12 * list_of_boundary_ids.size();    
+    
+    std::cout << "Force on ID# [N] ";
+    for (const auto &x : list_of_boundary_ids)
+      std::cout << "|     " << x << "     ";
+
+    std::cout << "\n";
+    for (unsigned int i = 0; i < l_width; ++i)
+            std::cout << "-";
+      
+    std::cout << "\n";
+    std::cout << "Total            ";
+    for (const auto &x: list_of_boundary_ids)
+      std::cout << "| " << std::fixed << std::setprecision(3) 
+                << std::setw(7) << std::scientific << force_total[x].norm() << " ";
+
+    std::cout << "\n";
+    std::cout << "Volumetric       ";
+    for (const auto &x: list_of_boundary_ids)
+      std::cout << "| " << std::fixed << std::setprecision(3) 
+                << std::setw(7) << std::scientific << force_vol[x].norm() << " ";
+    
+    std::cout << "\n";
+    std::cout << "Isochoric        ";
+    for (const auto &x: list_of_boundary_ids)
+      std::cout << "| " << std::fixed << std::setprecision(3) 
+                << std::setw(7) << std::scientific << force_iso[x].norm() << " ";
+
+    std::cout << "\n";
+    std::cout << "Active           ";
+    for (const auto &x: list_of_boundary_ids)
+      std::cout << "| " << std::fixed << std::setprecision(3) 
+                << std::setw(7) << std::scientific << force_muscle_active[x].norm() << " ";
+
+    std::cout << "\n";
+    std::cout << "Passive          ";
+    for (const auto &x: list_of_boundary_ids)
+      std::cout << "| " << std::fixed << std::setprecision(3) 
+                << std::setw(7) << std::scientific << force_muscle_passive[x].norm() << " ";
+    
+    std::cout << "\n";
+    std::cout << "Base Material    ";
+    for (const auto &x: list_of_boundary_ids)
+      std::cout << "| " << std::fixed << std::setprecision(3) 
+                << std::setw(7) << std::scientific << force_muscle_base[x].norm() << " ";
+    
+    std::cout << std::endl;
+
+    // Output to file
+    {
+      std::ostringstream filename;
+      filename << save_dir << "/force_data-" << dim << "d-" 
+              << std::setfill('0') << std::setw(3) << time.get_timestep() << ".csv";
+      std::ofstream output(filename.str().c_str());
+
+      output << "Boundary ID"
+               << "," << "Total x [N]" << "," << "Total y [N]" << "," << "Total z [N]"
+               << "," << "Volumetric x [N]" << "," << "Volumetric y [N]" << "," << "Volumetric z [N]"
+               << "," << "Isochoric x [N]" << "," << "Isochoric y [N]" << "," << "Isochoric z [N]"
+               << "," << "Muscle active x [N]" << "," << "Muscle active y [N]" << "," << "Muscle active z [N]"
+               << "," << "Muscle passive x [N]" << "," << "Muscle passive y [N]" << "," << "Muscle passive z [N]"
+               << "," << "Muscle base x [N]" << "," << "Muscle base y [N]" << "," << "Muscle base z [N]" << "\n";
+
+      for (const auto &x: list_of_boundary_ids)
+        output << x << "," << std::fixed << std::setprecision(4) << std::scientific
+              << force_total[x][0] << "," << force_total[x][1] << "," << force_total[x][2] << ","
+              << force_vol[x][0] << "," << force_vol[x][1] << "," << force_vol[x][2] << ","
+              << force_iso[x][0] << "," << force_iso[x][1] << "," << force_iso[x][2] << ","
+              << force_muscle_active[x][0] << "," << force_muscle_active[x][1] << "," << force_muscle_active[x][2] << ","
+              << force_muscle_passive[x][0] << "," << force_muscle_passive[x][1] << "," << force_muscle_passive[x][2] << ","
+              << force_muscle_base[x][0] << "," << force_muscle_base[x][1] << "," << force_muscle_base[x][2] << "\n";
+    }
+
+    // Output time series. For this, we are only interested in the force
+    // on the x-component of the Force exerted on the +x face along the
+    // line of action, which we compute by projecting the force vector
+    // onto the unit vector given by the initial fibre orientation.
+    {
+      std::ostringstream filename;
+      filename << save_dir << "/force_data-" << dim << "d.csv";
+      std::ofstream output;
+
+      if (time.get_timestep() == 0)
+      {
+        // Create file
+        output.open(filename.str());
+        output << "Time [s]"
+              << "," << "Total [N]"
+              << "," << "Volumetric [N]"
+              << "," << "Isochoric [N]"
+              << "," << "Muscle active [N]"
+              << "," << "Muscle passive [N]"
+              << "," << "Muscle base [N]"
+              << "," << "Volume [m^3]" << "\n";
+      }
+      else
+        output.open(filename.str(), std::ios_base::app); // Append contents to existing file
+        
+
+      output << time.current() << std::fixed 
+             << std::setprecision(4) << std::scientific
+             << "," << force_total[parameters.pulling_face_id][0]
+             << "," << force_vol[parameters.pulling_face_id][0]
+             << "," << force_iso[parameters.pulling_face_id][0]
+             << "," << force_muscle_active[parameters.pulling_face_id][0]
+             << "," << force_muscle_passive[parameters.pulling_face_id][0]
+             << "," << force_muscle_base[parameters.pulling_face_id][0]
+             << "," << current_volume << "\n";
+    }
+  }
+
+  // @sect4{Solid::output_mean_stretch_and_pennation}
+  template <int dim>
+  void Solid<dim>::output_mean_stretch_and_pennation() const
+  {
+    const double current_volume = compute_vol_current();
+
+    double mean_stretch = 0.0, mean_pennation = 0.0;
+
+    FEValues<dim> fe_values(fe, qf_cell,
+                            update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+
+      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+          quadrature_point_history.get_data(cell);
+      Assert(lqph.size() == n_q_points, ExcInternalError());
+
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      {
+        const double          stretch      = lqph[q_point]->get_stretch();
+        const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
+        const double          det_F        = lqph[q_point]->get_det_F();
+        const double          JxW          = fe_values.JxW(q_point);
+
+        mean_stretch += stretch * det_F * JxW;
+        mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+      }
+    }
+
+    mean_stretch = mean_stretch / current_volume;
+    mean_pennation = (mean_pennation * 180 / M_PI) / current_volume;
+
+    // Output time series
+    std::ostringstream filename;
+    filename << save_dir << "/mean_stretch_pennation_data-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      output.open(filename.str());
+      output << "Time [s]"
+              << "," << "Mean stretch"
+              << "," << "Mean pennation [deg]" << "\n";
+    }
+    else
+      output.open(filename.str(), std::ios_base::app);
+
+    output << time.current() << std::fixed 
+           << std::setprecision(4) << std::scientific
+           << "," << mean_stretch
+           << "," << mean_pennation << "\n";
+  }
+  
 } // namespace Flexodeal
 
 
 // @sect3{Main function}
 // Lastly we provide the main driver function which appears
 // no different to the other tutorials.
-int main()
+int main(int argc, char* argv[])
 {
   using namespace Flexodeal;
 
   try
     {
       const unsigned int dim = 3;
-      Solid<dim>         solid("parameters.prm");
+      std::string parameters_file;
+      
+      if (argc == 1)
+        parameters_file = "parameters.prm";
+      else
+        parameters_file = argv[1];
+
+      Solid<dim>         solid(parameters_file);
       solid.run();
     }
   catch (std::exception &exc)

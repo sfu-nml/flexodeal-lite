@@ -8,25 +8,25 @@ subsection Finite element system
   set Quadrature order  = 5
 
   # Type of simulation (dynamic or quasi-static)
-  set Type of simulation = dynamic
+  set Type of simulation = quasi-static
 end
 
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 3
+  set Global refinement   = 2
 
    # Length of the muscle block
-  set Length = 3.0
+  set Length = 0.03
 
   # Width of the muscle block
-  set Width = 1.0
+  set Width = 0.01
 
   # Height of the muscle block
-  set Height = 1.0
+  set Height = 0.01
 
   # Global grid scaling factor
-  set Grid scale          = 1e-3
+  set Grid scale          = 1
 
   # Ratio of applied pressure to reference pressure
   set Pressure ratio p/p0 = 0
@@ -125,6 +125,6 @@ subsection Prescribed displacement
     set Pulling face ID  = 1
     set Pull time start  = 0.0
     set Pull time end    = 0.5
-    set Pull strain      = 0.15
+    set Pull strain      = 0.0
     set Pull strain rate = 0.00090
 end
