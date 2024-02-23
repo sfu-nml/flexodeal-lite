@@ -125,6 +125,6 @@ subsection Prescribed displacement
     set Pulling face ID  = 1
     set Pull time start  = 0.0
     set Pull time end    = 0.5
-    set Pull strain      = -0.2
-    set Pull strain rate = 0.012
+    set Pull strain      = -0.1
+    set Pull strain rate = 0.006
 end
