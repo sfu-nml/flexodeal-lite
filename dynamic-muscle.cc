@@ -2691,6 +2691,10 @@ namespace Flexodeal
               << "Timestep " << time.get_timestep() << " @ " << time.current()
               << "s" << std::endl;
 
+    std::cout << "Current activation: " << activation_function.value(time.current()) * 100 << "%\n"
+              << "Current strain:     " << u_dir.displacement(time.current()) / parameters.length 
+              << std::endl;
+
     BlockVector<double> newton_update(dofs_per_block);
 
     // Additional variables required for accelerated Newton method
