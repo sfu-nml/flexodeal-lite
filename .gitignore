@@ -16,6 +16,7 @@ commit_text.txt
 .vscode/
 results/
 2024*/
+l2_errors.txt
 
 # Latex
 *.aux
