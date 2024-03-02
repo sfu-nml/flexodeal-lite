@@ -1615,6 +1615,12 @@ namespace Flexodeal
 
     void run();
 
+    Triangulation<dim>* get_triangulation() { return &triangulation; }
+    const FESystem<dim>* get_fe() { return &fe; }
+    CellDataStorage<typename Triangulation<dim>::cell_iterator,PointHistory<dim>>*
+      get_qph() { return &quadrature_point_history; }
+    const QGauss<dim>* get_qf_cell() { return &qf_cell; }
+
   private:
     // In the private section of this class, we first forward declare a number
     // of objects that are used in parallelizing work using the WorkStream
@@ -4784,6 +4790,84 @@ namespace Flexodeal
 } // namespace Flexodeal
 
 
+template <int dim>
+class TimeConvergenceStudy
+{
+public:
+  TimeConvergenceStudy(std::string parameters_exact,
+                   std::vector<std::string> parameters_approximations)
+    :
+    parameters_exact(parameters_exact),
+    parameters_approximations(parameters_approximations),
+    n_cycles(parameters_approximations.size())
+  {}
+
+  void run();
+
+private:
+  std::string              parameters_exact;
+  std::vector<std::string> parameters_approximations;
+  const unsigned int       n_cycles;
+
+};
+
+
+template <int dim>
+void TimeConvergenceStudy<dim>::run()
+{
+  using namespace dealii;
+
+  std::ofstream output;
+  output.open("l2_errors.txt");
+
+  // Compute "exact" solution
+  Flexodeal::Solid<dim> exact(parameters_exact);
+  exact.run();
+
+  const Triangulation<dim> &triangulation = *exact.get_triangulation();
+  const FESystem<dim> &fe = *exact.get_fe();
+  const QGauss<dim> &qf_cell = *exact.get_qf_cell();
+  FEValues<dim> fe_values(fe, qf_cell, update_JxW_values);
+
+  const CellDataStorage<typename Triangulation<dim>::cell_iterator,Flexodeal::PointHistory<dim>>
+    &qph_exact = *exact.get_qph();
+  
+  // Compute approximation
+  double l2_error = 0.0;
+  
+  for (unsigned int i = 0; i < n_cycles; ++i)
+  {
+    Flexodeal::Solid<dim> approx(parameters_approximations[i]);
+    approx.run();
+
+    const CellDataStorage<typename Triangulation<dim>::cell_iterator,Flexodeal::PointHistory<dim>>
+      &qph_approx = *approx.get_qph();
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+      const std::vector<std::shared_ptr<const Flexodeal::PointHistory<dim> > > lqph_exact =
+            qph_exact.get_data(cell);
+      const std::vector<std::shared_ptr<const Flexodeal::PointHistory<dim> > > lqph_approx =
+            qph_approx.get_data(cell);
+      
+      for (unsigned int q_point = 0; q_point < qf_cell.size(); ++q_point)
+      {
+        const double det_F = lqph_exact[q_point]->get_det_F();
+        const Tensor<1,dim> u_exact = lqph_exact[q_point]->get_displacement();
+        const Tensor<1,dim> u_approx = lqph_approx[q_point]->get_displacement();
+        const double JxW = fe_values.JxW(q_point);
+
+        l2_error += det_F * (u_exact - u_approx) * (u_exact - u_approx) * JxW;
+      }
+    }
+    
+    // Write to file
+    output << l2_error << "\n";
+  }
+}
+
+
 // @sect3{Main function}
 // Lastly we provide the main driver function which appears
 // no different to the other tutorials.
@@ -4794,15 +4878,22 @@ int main(int argc, char* argv[])
   try
     {
       const unsigned int dim = 3;
-      std::string parameters_file;
-      
-      if (argc == 1)
-        parameters_file = "parameters.prm";
-      else
-        parameters_file = argv[1];
 
-      Solid<dim>         solid(parameters_file);
-      solid.run();
+      if (argc == 1) // This is when "make run" or just "./dynamic-muscle" is called
+      {
+        Solid<dim> solid("parameters.prm");
+        solid.run();
+      }
+      else
+      {
+        std::string prm_exact = argv[1];
+        std::vector<std::string> prm_approximations;
+        for (int i = 2; i < argc; ++i)
+          prm_approximations.push_back(argv[i]);
+        
+        TimeConvergenceStudy<dim> study(prm_exact, prm_approximations);
+        study.run();
+      }
     }
   catch (std::exception &exc)
     {
