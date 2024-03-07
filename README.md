@@ -15,7 +15,7 @@ It is intended to simulate the deformation of a block of muscle tissue (similar 
 - Run the code. This either achieved by calling ``` make run``` or ```./dynamic-muscle```. A folder with the current timestamp will be created. This is where the results of your execution will be stored.
 
 
-## Latest count of lines of code
+## Latest line count
 
 ```
 Wed Mar  6 16:37:22 PST 2024
