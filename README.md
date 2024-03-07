@@ -3,6 +3,13 @@ This is a reduced version of the [Flexodeal](https://github.com/javieralmonacid/
 
 It is intended to simulate the deformation of a block of muscle tissue (similar to a biopsy). The stress response has been simplified to include contributions from muscle fibres (Hill-type model) and the base material (hyperelastic, Yeoh).
 
+Check out this cool video of a fully dynamic, fully active, isometric contraction!
+
+[![Dynamic isometric contraction of a muscle block with 30 degrees initial pennation angle.](reports/dynamic-isometric-contraction.png)](https://youtu.be/CCTiSV1Vl7o)
+
+
+
+
 ## How to use it?
 
 - Make sure you have properly set up deal.II v9.3 and its dependencies. For more information, visit [their website](http://www.dealii.org).
