@@ -1715,6 +1715,7 @@ namespace Flexodeal
     void output_energies() const;
     void output_forces() const;
     void output_mean_stretch_and_pennation() const;
+    void output_stresses() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -2016,6 +2017,7 @@ namespace Flexodeal
     output_energies();
     output_forces();
     output_mean_stretch_and_pennation();
+    output_stresses();
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -2041,6 +2043,7 @@ namespace Flexodeal
         output_energies();
         output_forces();
         output_mean_stretch_and_pennation();
+        output_stresses();
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
@@ -4779,6 +4782,79 @@ namespace Flexodeal
            << std::setprecision(4) << std::scientific
            << "," << mean_stretch
            << "," << mean_pennation << "\n";
+  }
+
+  // @sect4{Output stresses}
+  template <int dim>
+  void Solid<dim>::output_stresses() const
+  {
+    FE_DGQ<dim> fe_tau(degree-1);
+    DoFHandler<dim> dof_handler_tau(triangulation);
+    dof_handler_tau.distribute_dofs(fe_tau);
+
+    std::vector<std::vector<Vector<double>>>
+    tau(dim, std::vector<Vector<double>>(dim)),
+    local_tau_qp(dim, std::vector<Vector<double>>(dim)),
+    local_tau_dof(dim, std::vector<Vector<double>>(dim));
+
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+      {
+        tau[i][j].reinit(dof_handler_tau.n_dofs());
+        local_tau_qp[i][j].reinit(n_q_points);
+        local_tau_dof[i][j].reinit(fe_tau.n_dofs_per_cell());
+      }
+    
+    FullMatrix<double> qp_to_dof_matrix(fe_tau.dofs_per_cell, n_q_points);
+
+    FETools::compute_projection_from_quadrature_points_matrix(fe_tau,
+                                                              qf_cell,
+                                                              qf_cell,
+                                                              qp_to_dof_matrix);
+    
+    for (const auto &cell : dof_handler_tau.active_cell_iterators())
+    {
+      const std::vector<std::shared_ptr<const PointHistory<dim>>>
+      lqph = quadrature_point_history.get_data(cell);
+
+      for (unsigned int i = 0; i < dim; ++i)
+        for (unsigned int j = 0; j < dim; ++j)
+        {
+          for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+          {
+            const SymmetricTensor<2, dim> tau_lqph = lqph[q_point]->get_tau();
+            local_tau_qp[i][j](q_point) = tau_lqph[i][j];
+          }
+
+          qp_to_dof_matrix.vmult(local_tau_dof[i][j], local_tau_qp[i][j]);
+          cell->set_dof_values(local_tau_dof[i][j], tau[i][j]);
+        }
+    }
+
+    DataOut<dim> data_out;
+    data_out.attach_dof_handler(dof_handler_tau);
+
+    std::vector<std::vector<std::string>> field_names;
+    field_names.push_back({"tau_11", "tau_12", "tau_13"});
+    field_names.push_back({"tau_21", "tau_22", "tau_23"});
+    field_names.push_back({"tau_31", "tau_32", "tau_33"});
+
+    for (unsigned int i = 0; i < dim; ++i)
+      for (unsigned int j = 0; j < dim; ++j)
+        data_out.add_data_vector(tau[i][j], field_names[i][j]);
+    
+    Vector<double> soln(solution_n.size());
+    for (unsigned int i = 0; i < soln.size(); ++i)
+      soln(i) = solution_n(i);
+    MappingQEulerian<dim> q_mapping(degree, dof_handler, soln);
+    data_out.build_patches(q_mapping, degree);
+
+    std::ostringstream filename;
+    filename << save_dir << "/stress-" << dim << "d-" 
+             << std::setfill('0') << std::setw(3) << time.get_timestep() << ".vtu";
+    
+    std::ofstream output(filename.str().c_str());
+    data_out.write_vtu(output);
   }
   
 } // namespace Flexodeal
