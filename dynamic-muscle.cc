@@ -901,6 +901,11 @@ namespace Flexodeal
       return std::pow(det_F, 1/3) * stretch_bar;
     }
 
+    double get_strain_rate() const
+    {
+      return strain_rate_bar;
+    }
+
     Tensor<1, dim> get_orientation() const
     {
       return std::pow(det_F, 1/3) * orientation;
@@ -1334,6 +1339,11 @@ namespace Flexodeal
       return material->get_stretch();
     }
 
+    double get_strain_rate() const
+    {
+      return material->get_strain_rate();
+    }
+
     Tensor<1, dim> get_orientation() const
     {
       return material->get_orientation();
@@ -1716,6 +1726,7 @@ namespace Flexodeal
     void output_forces() const;
     void output_mean_stretch_and_pennation() const;
     void output_stresses() const;
+    void output_gearing_info() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -2018,6 +2029,7 @@ namespace Flexodeal
     output_forces();
     output_mean_stretch_and_pennation();
     output_stresses();
+    output_gearing_info();
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -2044,6 +2056,7 @@ namespace Flexodeal
         output_forces();
         output_mean_stretch_and_pennation();
         output_stresses();
+        output_gearing_info();
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
@@ -4855,6 +4868,89 @@ namespace Flexodeal
     
     std::ofstream output(filename.str().c_str());
     data_out.write_vtu(output);
+  }
+
+  // @sect4{Output gearing information (mean muscle and fibre velocity)}
+  template <int dim>
+  void Solid<dim>::output_gearing_info() const
+  {
+    // This function only makes sense for dynamic computations. If that is not the
+    // case, we just skip this function.
+    if (parameters.type_of_simulation != "dynamic")
+      return void();
+    
+    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0;
+
+    FEValues<dim> fe_values(fe, qf_cell,
+                            update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+
+      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+          quadrature_point_history.get_data(cell);
+      Assert(lqph.size() == n_q_points, ExcInternalError());
+
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      {
+        // As in output_energies(), get_velocity_previous returns the current velocity.
+        const Tensor<1, dim> muscle_velocity = lqph[q_point]->get_velocity_previous();
+        // We now retrieve information related to the fibre velocity.
+        const double strain_rate = lqph[q_point]->get_strain_rate();
+        // The rest of the quantities are related to the integrals themselves, as usual.
+        const double det_F = lqph[q_point]->get_det_F();
+        const double JxW = fe_values.JxW(q_point);
+
+        mean_muscle_velocity += muscle_velocity.norm() * det_F * JxW;
+        mean_strain_rate  += strain_rate * det_F * JxW;
+      }
+    }
+
+    const double current_volume = compute_vol_current();
+    mean_muscle_velocity = mean_muscle_velocity / current_volume;
+    mean_strain_rate = mean_strain_rate / current_volume;
+
+    const double initial_fibre_length = parameters.length / parameters.muscle_fibre_orientation_x;
+    const double strain_rate_naught = parameters.max_strain_rate;
+
+    // Output time series:
+    //
+    // Note that, in general,
+    //
+    //                        muscle velocity
+    //           gearing = ---------------------
+    //                         fibre velocity
+    //
+    // Therefore, it is normal to expect NaN or Inf values
+    // for gearing. Running the code in Debug mode will pick up
+    // on this NaN values and might raise some exceptions. To
+    // avoid this, we just output all the quantities required
+    // in the definition and postprocess this CSV file outside
+    // the code.
+    std::ostringstream filename;
+    filename << save_dir << "/gearing_info-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      output.open(filename.str());
+      output << "Time [s]"
+              << "," << "Mean muscle velocity [m/s]"
+              << "," << "Mean fibre strain rate (non-dim)"
+              << "," << "Initial fibre length [m]"
+              << "," << "Maximum strain rate [1/s]" << "\n";
+    }
+    else
+      output.open(filename.str(), std::ios_base::app);
+    
+    output << time.current() << std::fixed 
+           << std::setprecision(4) << std::scientific
+           << "," << mean_muscle_velocity
+           << "," << mean_strain_rate
+           << "," << initial_fibre_length
+           << "," << strain_rate_naught << "\n";
   }
   
 } // namespace Flexodeal
