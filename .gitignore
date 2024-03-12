@@ -16,6 +16,8 @@ commit_text.txt
 .vscode/
 results/
 2024*/
+*.zip
+*.txt
 
 # Latex
 *.aux
