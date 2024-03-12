@@ -3134,6 +3134,11 @@ namespace Flexodeal
               Assert(k_group <= J_dof, ExcInternalError());
           }
       }
+    
+    // These quantities are required for dynamic computations and do not
+    // depend on quadrature point data.
+    const double material_density = parameters.muscle_density;
+    const double dt               = time.get_delta_t();
 
     // Now we build the local cell stiffness matrix and RHS vector. Since the
     // global and local system matrices are symmetric, we can exploit this
@@ -3200,11 +3205,6 @@ namespace Flexodeal
               data.cell_rhs(i) -= N[i] * (dPsi_vol_dJ - p_tilde) * JxW;
             else
               Assert(i_group <= J_dof, ExcInternalError());
-
-            // Dynamic contribution. For now, we hard code the density of the
-            // material. In reality, this should come from the parameters file.
-            const double material_density = 1000;
-            const double dt               = time.get_delta_t();
 
             if (i_group == u_dof && parameters.type_of_simulation == "dynamic")
             {
