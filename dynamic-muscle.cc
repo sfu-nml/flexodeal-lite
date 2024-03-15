@@ -705,6 +705,78 @@ namespace Flexodeal
     const double delta_t;
   };
 
+  // @sect3{Function from tabular data and interpolation tools}
+
+  // This class can be used to read data from a table of
+  // x,y values (separated by a space or tab) and construct
+  // a continuous function from them using linear interpolation.
+  // This will be particularly useful to read activations and 
+  // muscle length profiles from data. Although it may seem like
+  // an overkill, this class can also be used to implement simple
+  // linear ramps. For instance, a linear ramp between (0,0) and 
+  // (0.5, 1.0) only requires a .dat file with 2 lines:
+  //
+  //                  0.0 0.0
+  //                  0.5 1.0
+  //
+  class TabularFunction
+  {
+  public:
+    TabularFunction(const std::string filename)
+    {
+      initialize_map(filename);
+    }
+
+    double operator()(const double t);
+
+  private:
+    std::map<double,double> table_values;
+    void initialize_map(const std::string filename);
+  };
+
+  // Read data (control points) and store them in the table_values map
+  void TabularFunction::initialize_map(const std::string filename)
+  {
+    std::ifstream infile(filename);
+
+    // Raise an exception if file cannot be open (perhaps it does not
+    // even exist!).
+    if (infile.fail())
+      throw std::invalid_argument("Cannot open file: " + filename +  
+            ". Make sure the file exists and it has read permissions.");
+    
+    double x, y;
+    while (infile >> x >> y)
+      table_values.insert({x, y});
+  }
+
+  // Evaluate the data:
+  // - Interpolate if not found and t (independent variable) 
+  //   is in data range
+  // - Retrieve the original y coordinate if found
+  // - Output a constant value if t exceeds data range
+  double TabularFunction::operator()(const double t)
+  {
+    double out = 1000000; /*Bogus value*/
+    auto iter_t = table_values.find(t);
+    
+    if (iter_t == table_values.end()) /* Value not found: interpolate! */
+    {
+      if (t <= table_values.rbegin()->first)
+      {
+        auto t1 = table_values.upper_bound(t);
+        auto t0 = std::prev(t1);
+        out = ((t1->second - t0->second)/(t1->first - t0->first)) * (t - t0->first) + t0->second;
+      }
+      else
+        out = table_values.rbegin()->second; /* Constant after last point */
+    }
+    else /* Value found! Return this value */
+      out = iter_t->second;
+
+    return out;
+  }
+
   // @sect3{Muscle tissue within a three-field formulation}
 
   // Muscle can be described as a quasi-incompressible fibre-reinforced
@@ -1621,7 +1693,9 @@ namespace Flexodeal
   class Solid
   {
   public:
-    Solid(const std::string &input_file);
+    Solid(const std::string &input_file,
+          const std::string &strain_file,
+          const std::string &activation_file);
 
     void run();
 
@@ -1727,6 +1801,7 @@ namespace Flexodeal
     void output_mean_stretch_and_pennation() const;
     void output_stresses() const;
     void output_gearing_info() const;
+    void output_activation_muscle_length();
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -1745,10 +1820,12 @@ namespace Flexodeal
     mutable TimerOutput timer;
 
     // Create pulling profile
-    PrescribedDisplacement<dim> u_dir;
+    //PrescribedDisplacement<dim> u_dir;
+    TabularFunction u_dir;
 
     // Create activation profile
-    Activation activation_function;
+    //Activation activation_function;
+    TabularFunction activation_function;
 
     // A storage object for quadrature point information. As opposed to
     // step-18, deal.II's native quadrature point data manager is employed
@@ -1869,20 +1946,24 @@ namespace Flexodeal
 
   // We initialize the Solid class using data extracted from the parameter file.
   template <int dim>
-  Solid<dim>::Solid(const std::string &input_file)
+  Solid<dim>::Solid(const std::string &input_file,
+                    const std::string &strain_file,
+                    const std::string &activation_file)
     : parameters(input_file)
     , vol_reference(0.)
     , triangulation(Triangulation<dim>::maximum_smoothing)
     , time(parameters.end_time, parameters.delta_t)
     , timer(std::cout, TimerOutput::summary, TimerOutput::wall_times)
-    , u_dir(parameters.pull_time_start,
-            parameters.pull_time_end,
-            parameters.pull_strain,
-            parameters.pull_strain_rate,
-            parameters.length * parameters.scale)
-    , activation_function(parameters.activation_start,
-                          parameters.activation_end,
-                          parameters.activation_level)
+    //, u_dir(parameters.pull_time_start,
+    //        parameters.pull_time_end,
+    //        parameters.pull_strain,
+    //        parameters.pull_strain_rate,
+    //        parameters.length * parameters.scale)
+    //, activation_function(parameters.activation_start,
+    //                      parameters.activation_end,
+    //                      parameters.activation_level)
+    , u_dir(strain_file)
+    , activation_function(activation_file)
     , degree(parameters.poly_degree)
     ,
     // The Finite Element System is composed of dim continuous displacement
@@ -2030,6 +2111,7 @@ namespace Flexodeal
     output_mean_stretch_and_pennation();
     output_stresses();
     output_gearing_info();
+    output_activation_muscle_length();
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -2057,6 +2139,7 @@ namespace Flexodeal
         output_mean_stretch_and_pennation();
         output_stresses();
         output_gearing_info();
+        output_activation_muscle_length();
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
@@ -2639,7 +2722,7 @@ namespace Flexodeal
                                    scratch.solution_grads_u_total[q_point],
                                    scratch.solution_values_p_total[q_point],
                                    scratch.solution_values_J_total[q_point],
-                                   activation_function.value(time.current()),
+                                   activation_function(time.current()),
                                    time.get_delta_t());
   }
 
@@ -2708,8 +2791,8 @@ namespace Flexodeal
               << "Timestep " << time.get_timestep() << " @ " << time.current()
               << "s" << std::endl;
 
-    std::cout << "Current activation: " << activation_function.value(time.current()) * 100 << "%\n"
-              << "Current strain:     " << u_dir.displacement(time.current()) / parameters.length 
+    std::cout << "Current activation: " << activation_function(time.current()) * 100 << "%\n"
+              << "Current strain:     " << u_dir(time.current())
               << std::endl;
 
     BlockVector<double> newton_update(dofs_per_block);
@@ -3441,7 +3524,7 @@ namespace Flexodeal
             dof_handler,
             boundary_id,
             IncrementalDisplacement<dim>(
-              u_dir.displacement(time.current()),u_dir.displacement(time.previous())),
+              u_dir(time.current())*parameters.length,u_dir(time.previous())*parameters.length),
             constraints,
             (fe.component_mask(x_displacement) | fe.component_mask(y_displacement) | fe.component_mask(z_displacement)));
         }
@@ -4952,6 +5035,29 @@ namespace Flexodeal
            << "," << initial_fibre_length
            << "," << strain_rate_naught << "\n";
   }
+
+  template <int dim>
+  void Solid<dim>::output_activation_muscle_length()
+  {
+    std::ostringstream filename;
+    filename << save_dir << "/activation_muscle_length-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      output.open(filename.str());
+      output << "Time [s]"
+              << "," << "Activation (%)"
+              << "," << "Muscle length [m]" << "\n";
+    }
+    else
+      output.open(filename.str(), std::ios_base::app);
+
+    output << time.current() << std::fixed 
+           << std::setprecision(4) << std::scientific
+           << "," << activation_function(time.current()) * 100
+           << "," << parameters.length * (u_dir(time.current()) + 1.0) << "\n";
+  }
   
 } // namespace Flexodeal
 
@@ -4966,14 +5072,22 @@ int main(int argc, char* argv[])
   try
     {
       const unsigned int dim = 3;
-      std::string parameters_file;
+      std::string parameters_file, strain_file, activation_file;
       
       if (argc == 1)
+      {
         parameters_file = "parameters.prm";
+        strain_file     = "control_points_strain.dat";
+        activation_file = "control_points_activation.dat";
+      } 
       else
+      {
         parameters_file = argv[1];
+        strain_file     = argv[2];
+        activation_file = argv[3];
+      }
 
-      Solid<dim>         solid(parameters_file);
+      Solid<dim>  solid(parameters_file, strain_file, activation_file);
       solid.run();
     }
   catch (std::exception &exc)
