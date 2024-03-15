@@ -115,3 +115,21 @@ end
 subsection Prescribed displacement
     set Pulling face ID  = 1
 end
+
+
+subsection Measuring locations
+    # Left point coordinates
+    set Left X = 0.0075
+    set Left Y = 0.005
+    set Left Z = 0.005
+    
+    # Middle point coordinates
+    set Mid X  = 0.015
+    set Mid Y  = 0.005
+    set Mid Z  = 0.005
+
+    # Right point coordinates
+    set Right X = 0.0225
+    set Right Y = 0.005
+    set Right Z = 0.005
+end

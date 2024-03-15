@@ -527,6 +527,89 @@ namespace Flexodeal
       prm.leave_subsection();
     }
 
+    // @sect4{Measuring locations}
+    
+    // We select three points in the geometry at which we will
+    // output traces of displacement.
+    struct MeasuringLocations
+    {
+      double x_left;
+      double y_left;
+      double z_left;
+      double x_mid;
+      double y_mid;
+      double z_mid;
+      double x_right;
+      double y_right;
+      double z_right;
+
+      static void
+      declare_parameters(ParameterHandler &prm);
+
+      void
+      parse_parameters(ParameterHandler &prm);
+    };
+
+    void Parameters::MeasuringLocations::declare_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Measuring locations");
+      {
+        prm.declare_entry("Left X", "0.0",
+                          Patterns::Double(),
+                          "Left measuring point, X coordinate");
+
+        prm.declare_entry("Left Y", "0.0",
+                          Patterns::Double(),
+                          "Left measuring point, Y coordinate");
+
+        prm.declare_entry("Left Z", "0.0",
+                          Patterns::Double(),
+                          "Left measuring point, Z coordinate");
+
+        prm.declare_entry("Mid X", "0.0",
+                          Patterns::Double(),
+                          "Mid measuring point, X coordinate");
+
+        prm.declare_entry("Mid Y", "0.0",
+                          Patterns::Double(),
+                          "Mid measuring point, Y coordinate");
+
+        prm.declare_entry("Mid Z", "0.0",
+                          Patterns::Double(),
+                          "Mid measuring point, Z coordinate");
+
+        prm.declare_entry("Right X", "0.0",
+                          Patterns::Double(),
+                          "Right measuring point, X coordinate");
+
+        prm.declare_entry("Right Y", "0.0",
+                          Patterns::Double(),
+                          "Right measuring point, Y coordinate");
+
+        prm.declare_entry("Right Z", "0.0",
+                          Patterns::Double(),
+                          "Right measuring point, Z coordinate");
+      }
+      prm.leave_subsection();
+    }
+
+    void Parameters::MeasuringLocations::parse_parameters(ParameterHandler &prm)
+    {
+      prm.enter_subsection("Measuring locations");
+      {
+        x_left = prm.get_double("Left X");
+        y_left = prm.get_double("Left Y");
+        z_left = prm.get_double("Left Z");
+        x_mid = prm.get_double("Mid X");
+        y_mid = prm.get_double("Mid Y");
+        z_mid = prm.get_double("Mid Z");
+        x_right = prm.get_double("Right X");
+        y_right = prm.get_double("Right Y");
+        z_right = prm.get_double("Right Z");
+      }
+      prm.leave_subsection();
+    }
+
     // @sect4{All parameters}
 
     // Finally we consolidate all of the above structures into a single
@@ -537,7 +620,8 @@ namespace Flexodeal
                            public LinearSolver,
                            public NonlinearSolver,
                            public Time,
-                           public PrescribedDisplacement
+                           public PrescribedDisplacement,
+                           public MeasuringLocations
 
     {
       AllParameters(const std::string &input_file);
@@ -570,6 +654,7 @@ namespace Flexodeal
       NonlinearSolver::declare_parameters(prm);
       Time::declare_parameters(prm);
       PrescribedDisplacement::declare_parameters(prm);
+      MeasuringLocations::declare_parameters(prm);
     }
 
     void AllParameters::parse_parameters(ParameterHandler &prm)
@@ -581,6 +666,7 @@ namespace Flexodeal
       NonlinearSolver::parse_parameters(prm);
       Time::parse_parameters(prm);
       PrescribedDisplacement::parse_parameters(prm);
+      MeasuringLocations::parse_parameters(prm);
     }
   } // namespace Parameters
 
@@ -1612,6 +1698,11 @@ namespace Flexodeal
     BlockVector<double>
     get_total_solution(const BlockVector<double> &solution_delta) const;
 
+    // Entities to store DOF information of measuring locations
+    std::vector<types::global_dof_index> global_dof_index_u_left;
+    std::vector<types::global_dof_index> global_dof_index_u_mid;
+    std::vector<types::global_dof_index> global_dof_index_u_right;
+
     void output_results();
     void output_vtk() const;
     void output_along_fibre_stretch() const;
@@ -1621,6 +1712,7 @@ namespace Flexodeal
     void output_stresses() const;
     void output_gearing_info() const;
     void output_activation_muscle_length();
+    void ouput_displacements_at_select_locations() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -2299,6 +2391,91 @@ namespace Flexodeal
               << triangulation.n_active_cells()
               << "\n\t Number of degrees of freedom: " << dof_handler.n_dofs()
               << std::endl;
+
+    // Now that the dof_handler structure has been set up, we find the
+    // global_dof_index corresponding to the left, middle, and right
+    // measuring locations
+    {
+      // First, we declare an exception in case one of the points
+      // is not found as a vertex in the grid.
+      DeclException1(
+      ExcEvaluationPointNotFound,
+      Point<dim>,
+      << "The evaluation point " << arg1
+      << " was not found among the vertices of the present grid.");
+
+      bool found_left = false, found_mid = false, 
+        found_right = false, evaluation_points_found = false;
+      
+      Point<dim> p_left(parameters.x_left, parameters.y_left, parameters.z_left);
+      Point<dim> p_mid(parameters.x_mid, parameters.y_mid, parameters.z_mid);
+      Point<dim> p_right(parameters.x_right, parameters.y_right, parameters.z_right);
+      const double tol = 1e-14;
+
+      for (const auto &cell : dof_handler.active_cell_iterators())
+      {
+        if (!evaluation_points_found)
+        {
+          for (const auto vertex : cell->vertex_indices())
+          {
+            if (!found_left)
+            {
+              Point<dim>    current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_left; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_u_left.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_u_left.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_u_left.push_back(cell->vertex_dof_index(vertex,2));
+                found_left = true;
+              }
+            }
+
+            if (!found_mid)
+            {
+              Point<dim>    current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_mid;
+              if (diff.norm() < tol)
+              {
+                global_dof_index_u_mid.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_u_mid.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_u_mid.push_back(cell->vertex_dof_index(vertex,2));
+                found_mid = true;
+              }
+            }
+
+            if (!found_right)
+            {
+              Point<dim>    current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point-p_right;
+              if (diff.norm() < tol)
+              {
+                global_dof_index_u_right.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_u_right.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_u_right.push_back(cell->vertex_dof_index(vertex,2));
+                found_right = true;
+              }
+            }
+          }
+          
+          evaluation_points_found = found_left && found_mid && found_right;
+        }
+        else
+            break;
+      }
+
+      // Stop the program immediately if one of these points was not 
+      // found in the mesh
+      AssertThrow(found_left,  ExcEvaluationPointNotFound(p_left));
+      AssertThrow(found_mid,   ExcEvaluationPointNotFound(p_mid));
+      AssertThrow(found_right, ExcEvaluationPointNotFound(p_right));
+
+      std::cout << "\nMeasuring locations [m]:"
+                << "\n\t Left point:   " << p_left
+                << "\n\t Mid point:    " << p_mid
+                << "\n\t Right point:  " << p_right
+                << "\n" << std::endl;
+    }
 
     // Setup the sparsity pattern and tangent matrix
     tangent_matrix.clear();
@@ -4238,6 +4415,7 @@ namespace Flexodeal
     output_stresses();
     output_gearing_info();
     output_activation_muscle_length();
+    ouput_displacements_at_select_locations();
 
     timer.leave_subsection();
   }
@@ -4882,6 +5060,54 @@ namespace Flexodeal
            << std::setprecision(4) << std::scientific
            << "," << activation_function(time.current()) * 100
            << "," << parameters.length * (u_dir(time.current()) + 1.0) << "\n";
+  }
+
+  template <int dim>
+  void Solid<dim>::ouput_displacements_at_select_locations() const
+  {
+    Tensor<1,dim> u_left, u_mid, u_right;
+    
+    for (unsigned int i = 0; i < dim; i++)
+    {
+      u_left[i]  = solution_n(global_dof_index_u_left[i]);
+      u_mid[i]   = solution_n(global_dof_index_u_mid[i]);
+      u_right[i] = solution_n(global_dof_index_u_right[i]);
+    }
+
+    std::ostringstream filename;
+    filename << save_dir << "/displacements-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      output.open(filename.str());
+      output << "Time [s]"
+              << "," << "Activation (%)"
+              << "," << "u left x [m]"
+              << "," << "u left y [m]"
+              << "," << "u left z [m]"
+              << "," << "u mid x [m]"
+              << "," << "u mid y [m]"
+              << "," << "u mid z [m]"
+              << "," << "u right x [m]"
+              << "," << "u right y [m]"
+              << "," << "u right z [m]"
+              << "," << "Muscle length [m]" << "\n";
+    }
+    else
+      output.open(filename.str(), std::ios_base::app);
+
+    output << time.current() << std::fixed 
+           << std::setprecision(8) << std::scientific
+           << "," << u_left[0]
+           << "," << u_left[1]
+           << "," << u_left[2]
+           << "," << u_mid[0]
+           << "," << u_mid[1]
+           << "," << u_mid[2]
+           << "," << u_right[0]
+           << "," << u_right[1]
+           << "," << u_right[2] << "\n";
   }
   
 } // namespace Flexodeal
