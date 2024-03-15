@@ -1794,7 +1794,8 @@ namespace Flexodeal
     BlockVector<double>
     get_total_solution(const BlockVector<double> &solution_delta) const;
 
-    void output_results() const;
+    void output_results();
+    void output_vtk() const;
     void output_along_fibre_stretch() const;
     void output_energies() const;
     void output_forces() const;
@@ -2105,13 +2106,14 @@ namespace Flexodeal
         dof_handler, constraints, QGauss<dim>(degree + 2), J_mask, solution_n);
     }
     output_results();
+    /* output_vtk();
     output_along_fibre_stretch();
     output_energies();
     output_forces();
     output_mean_stretch_and_pennation();
     output_stresses();
     output_gearing_info();
-    output_activation_muscle_length();
+    output_activation_muscle_length(); */
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -2133,13 +2135,14 @@ namespace Flexodeal
         // ...and plot the results before moving on happily to the next time
         // step:
         output_results();
+        /* output_vtk();
         output_along_fibre_stretch();
         output_energies();
         output_forces();
         output_mean_stretch_and_pennation();
         output_stresses();
         output_gearing_info();
-        output_activation_muscle_length();
+        output_activation_muscle_length(); */
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
@@ -4418,11 +4421,33 @@ namespace Flexodeal
   }
 
   // @sect4{Solid::output_results}
+  // The output_results function looks a bit different from other tutorials.
+  // This is because not only we're interested in visualizing Paraview files
+  // but also traces (time series) of other quantities. The Paraview files
+  // are output in the output_vtk function.
+  template <int dim>
+  void Solid<dim>::output_results()
+  {
+    timer.enter_subsection("Output results");
+
+    output_vtk();
+    output_along_fibre_stretch();
+    output_energies();
+    output_forces();
+    output_mean_stretch_and_pennation();
+    output_stresses();
+    output_gearing_info();
+    output_activation_muscle_length();
+    
+    timer.leave_subsection();
+  }
+
+  // @sect4{Solid::output_vtk}
   // Here we present how the results are written to file to be viewed
   // using ParaView or VisIt. The method is similar to that shown in previous
   // tutorials so will not be discussed in detail.
   template <int dim>
-  void Solid<dim>::output_results() const
+  void Solid<dim>::output_vtk() const
   {
     DataOut<dim> data_out;
     std::vector<DataComponentInterpretation::DataComponentInterpretation>
