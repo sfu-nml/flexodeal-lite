@@ -326,51 +326,6 @@ namespace Flexodeal
       prm.leave_subsection();
     }
 
-    // @sect4{Activation}
-
-    struct Activation
-    {
-        double activation_level;
-        double activation_start;
-        double activation_end;
-
-        static void
-        declare_parameters(ParameterHandler &prm);
-
-        void
-        parse_parameters(ParameterHandler &prm);
-    };
-
-    void Activation::declare_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Activation");
-      {
-        prm.declare_entry("Activation level", "0.0",
-                            Patterns::Double(),
-                            "Maximum activation level");
-        
-        prm.declare_entry("Activation start", "0.0",
-                            Patterns::Double(),
-                            "Beginning of activation ramp");
-
-        prm.declare_entry("Activation end", "1.0",
-                            Patterns::Double(),
-                            "End of activation ramp");
-      }
-      prm.leave_subsection();
-    }
-
-    void Activation::parse_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Activation");
-      {
-        activation_level = prm.get_double("Activation level");
-        activation_start = prm.get_double("Activation start");
-        activation_end   = prm.get_double("Activation end");
-      }
-      prm.leave_subsection();
-    }
-
     // @sect4{Linear solver}
 
     // Next, we choose both solver and preconditioner settings.  The use of an
@@ -537,13 +492,13 @@ namespace Flexodeal
     // @sect4{PrescribedDisplacement}
 
     // Set the parameters for the prescribed displacement.
+    // Note that because the profile itself is given from
+    // the .dat file, the only thing we keep track here
+    // is which face we are pulling from because this is
+    // where we measure forces.
     struct PrescribedDisplacement
     {
       unsigned int pulling_face_id;
-      double pull_time_start;
-      double pull_time_end;
-      double pull_strain;
-      double pull_strain_rate;
 
       static void
       declare_parameters(ParameterHandler &prm);
@@ -559,22 +514,6 @@ namespace Flexodeal
         prm.declare_entry("Pulling face ID", "1",
                           Patterns::Integer(0,6),
                           "Boundary ID of face being pulled/pushed");
-        
-        prm.declare_entry("Pull time start", "0.0",
-                          Patterns::Double(),
-                          "Pulling start time");
-
-        prm.declare_entry("Pull time end", "1.0",
-                          Patterns::Double(),
-                          "Pulling end time");
-        
-        prm.declare_entry("Pull strain", "0.0",
-                          Patterns::Double(-1,10),
-                          "Strain to which the body is being pulled");
-
-        prm.declare_entry("Pull strain rate", "1.0",
-                          Patterns::Double(0,100),
-                          "Maximum pulling strain rate");
       }
       prm.leave_subsection();
     }
@@ -584,10 +523,6 @@ namespace Flexodeal
       prm.enter_subsection("Prescribed displacement");
       {
         pulling_face_id  = prm.get_integer("Pulling face ID");
-        pull_time_start  = prm.get_double("Pull time start");
-        pull_time_end    = prm.get_double("Pull time end");
-        pull_strain      = prm.get_double("Pull strain");
-        pull_strain_rate = prm.get_double("Pull strain rate");
       }
       prm.leave_subsection();
     }
@@ -599,7 +534,6 @@ namespace Flexodeal
     struct AllParameters : public FESystem,
                            public Geometry,
                            public MuscleProperties,
-                           public Activation,
                            public LinearSolver,
                            public NonlinearSolver,
                            public Time,
@@ -632,7 +566,6 @@ namespace Flexodeal
       FESystem::declare_parameters(prm);
       Geometry::declare_parameters(prm);
       MuscleProperties::declare_parameters(prm);
-      Activation::declare_parameters(prm);
       LinearSolver::declare_parameters(prm);
       NonlinearSolver::declare_parameters(prm);
       Time::declare_parameters(prm);
@@ -644,7 +577,6 @@ namespace Flexodeal
       FESystem::parse_parameters(prm);
       Geometry::parse_parameters(prm);
       MuscleProperties::parse_parameters(prm);
-      Activation::parse_parameters(prm);
       LinearSolver::parse_parameters(prm);
       NonlinearSolver::parse_parameters(prm);
       Time::parse_parameters(prm);
@@ -1530,84 +1462,7 @@ namespace Flexodeal
     Tensor<2, dim> F_previous; // This variable is updated at each time step
   };
 
-  // @sect3{PrescribedDisplacement and IncrementalDisplacement classes}
-  
-  // We first implement the PrescribedDisplacement class which
-  // which keeps track of the Dirichlet boundary condition for
-  // the whole problem. Note however that, because we are solving
-  // a series of Newton increments, THIS IS NOT THE BOUNDARY
-  // CONDITION THAT NEEDS TO BE IMPLEMENTED. This is done in
-  // the IncrementalDisplacement class.
-  template <int dim>
-  class PrescribedDisplacement
-  {
-  public:
-    PrescribedDisplacement(const double pull_start,
-                           const double pull_end,
-                           const double pull_strain,
-                           const double pull_strain_rate,
-                           const double muscle_length)
-      :
-      pull_start(pull_start),
-      pull_end(pull_end),
-      pull_strain(pull_strain),
-      pull_strain_rate(pull_strain_rate),
-      muscle_length(muscle_length)
-    {
-      // Verify that pull_strain_rate is fast enough given the
-      // start and end times
-      const double min_strain_rate = 
-        std::abs(pull_strain * muscle_length / (pull_end - pull_start));
-      const std::string error_message = 
-        "Pull strain rate, currently set to " + std::to_string(pull_strain_rate) + 
-        ", must be set to at least " + std::to_string(min_strain_rate) + ".";
-      AssertThrow(pull_strain_rate >= min_strain_rate, ExcMessage(error_message));
-    }
-
-    double displacement(const double t)
-    {
-      double value = 0.0;
-
-      // Compute t0, t1
-      const double L0 = muscle_length;
-      const double L1 = muscle_length * (1 + pull_strain);
-      const double Lmid = (L0 + L1) / 2.0;
-      const double tmid = (pull_start + pull_end) / 2.0;
-
-      double t0, t1;
-      if (pull_strain >= 0)
-      {
-        t0 = (L0 - Lmid) / pull_strain_rate + tmid;
-        t1 = (L1 - Lmid) / pull_strain_rate + tmid;
-      }
-      else
-      {
-        t0 = (L1 - Lmid) / pull_strain_rate + tmid;
-        t1 = (L0 - Lmid) / pull_strain_rate + tmid;
-      }
-      
-      int sign_pull = 0;
-      if (pull_strain != 0)
-        sign_pull = (pull_strain > 0) ? 1 : -1;
-
-      if (t <= t0)
-        value = 0.0;
-      else if (t > t0 && t < t1)
-        value = sign_pull * pull_strain_rate * (t - tmid) + Lmid - muscle_length;
-      else if (t >= t1)
-        value = pull_strain * muscle_length;
-      
-      return value;
-    }
-    
-    private:
-      const double pull_start;
-      const double pull_end;
-      const double pull_strain;
-      const double pull_strain_rate;
-      const double muscle_length;
-  };
-
+  // @sect4{Incremental displacement class}
 
   // An important note in this class: because this will be fed into
   // the VectorTools::interpolate_boundary_values function, it MUST
@@ -1645,43 +1500,6 @@ namespace Flexodeal
   {
     return (component == 0) ? (u_dir_n - u_dir_n_1) : 0.0;
   }
-
-  // Activation profile
-  class Activation
-  {
-  public:
-    Activation(const double activation_start,
-               const double activation_end,
-               const double activation_level)
-      :
-      activation_start(activation_start),
-      activation_end(activation_end),
-      activation_level(activation_level)
-    {}
-
-    double value(const double t) const
-    {
-      double a = 0;
-
-      if (activation_level != 0)
-      {
-        if (t <= activation_start)
-          a = 0.0;
-        else if (t > activation_start && t < activation_end)
-          a = (activation_level/100) / (activation_end - activation_start) * (t - activation_start);
-        else if (t >= activation_end)
-          a = (activation_level/100);
-      }
-
-      return a;
-    }
-  
-  private:
-    const double activation_start;
-    const double activation_end;
-    const double activation_level;
-  };
-
 
   // @sect3{Quasi-static quasi-incompressible finite-strain solid}
 
@@ -1821,11 +1639,9 @@ namespace Flexodeal
     mutable TimerOutput timer;
 
     // Create pulling profile
-    //PrescribedDisplacement<dim> u_dir;
     TabularFunction u_dir;
 
     // Create activation profile
-    //Activation activation_function;
     TabularFunction activation_function;
 
     // A storage object for quadrature point information. As opposed to
@@ -4438,7 +4254,7 @@ namespace Flexodeal
     output_stresses();
     output_gearing_info();
     output_activation_muscle_length();
-    
+
     timer.leave_subsection();
   }
 
