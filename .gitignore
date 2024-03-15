@@ -13,9 +13,12 @@ _deps
 dynamic-muscle
 temp_text.txt
 commit_text.txt
+commit_text.md
 .vscode/
 results/
 2024*/
+*.zip
+*.txt
 
 # Latex
 *.aux
