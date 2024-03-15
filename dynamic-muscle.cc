@@ -1922,14 +1922,6 @@ namespace Flexodeal
         dof_handler, constraints, QGauss<dim>(degree + 2), J_mask, solution_n);
     }
     output_results();
-    /* output_vtk();
-    output_along_fibre_stretch();
-    output_energies();
-    output_forces();
-    output_mean_stretch_and_pennation();
-    output_stresses();
-    output_gearing_info();
-    output_activation_muscle_length(); */
     time.increment();
 
     // We then declare the incremental solution update $\varDelta
@@ -1951,14 +1943,6 @@ namespace Flexodeal
         // ...and plot the results before moving on happily to the next time
         // step:
         output_results();
-        /* output_vtk();
-        output_along_fibre_stretch();
-        output_energies();
-        output_forces();
-        output_mean_stretch_and_pennation();
-        output_stresses();
-        output_gearing_info();
-        output_activation_muscle_length(); */
 
         // If our computation is dynamic (rather than quasi-static),
         // then we have to update the "previous" variables. These two
