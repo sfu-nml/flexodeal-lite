@@ -70,9 +70,9 @@ subsection Materials
 
   set Muscle x component = 0.86602540
 
-  set Muscle y component = 0.50000000
+  set Muscle y component = 0.0
 
-  set Muscle z component = 0.0
+  set Muscle z component = 0.50000000
   
   # Base material properties
   set Sigma naught base material = 2.0e5
@@ -84,15 +84,6 @@ subsection Materials
 	set Muscle base material constant 2 = 0.3662334826469149
 
 	set Muscle base material constant 3 = 0.0
-end
-
-
-subsection Activation
-    set Activation level = 100      # [%]
-
-    set Activation start = 0.0      # [s]
-
-    set Activation end = 0.5        # [s]
 end
 
 
@@ -123,8 +114,22 @@ end
 
 subsection Prescribed displacement
     set Pulling face ID  = 1
-    set Pull time start  = 0.0
-    set Pull time end    = 0.5
-    set Pull strain      = 0.0
-    set Pull strain rate = 0.00090
+end
+
+
+subsection Measuring locations
+    # Left point coordinates
+    set Left X = 0.0075
+    set Left Y = 0.005
+    set Left Z = 0.005
+    
+    # Middle point coordinates
+    set Mid X  = 0.015
+    set Mid Y  = 0.005
+    set Mid Z  = 0.005
+
+    # Right point coordinates
+    set Right X = 0.0225
+    set Right Y = 0.005
+    set Right Z = 0.005
 end
