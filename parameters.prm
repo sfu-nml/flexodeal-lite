@@ -17,7 +17,7 @@ subsection Geometry
   set Global refinement   = 3
 
    # Length of the muscle block
-  set Length = 0.03
+  set Length = 0.06
 
   # Width of the muscle block
   set Width = 0.01
@@ -64,7 +64,7 @@ subsection Materials
   # Fibre properties
   set Sigma naught muscle = 2.0e5
 
-  set Bulk modulus muscle = 1.0e6
+  set Bulk modulus muscle = 1.0e7
 
   set Max strain rate = 5.0
 
