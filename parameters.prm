@@ -14,7 +14,7 @@ end
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 2
+  set Global refinement   = 3
 
    # Length of the muscle block
   set Length = 0.03
@@ -44,7 +44,7 @@ subsection Linear solver
   # Use static condensation and solve a 1-block system, or solve
   # the full 3-block system using Linear Operators and the Schur
   # complement
-  set Use static condensation = false
+  set Use static condensation = true
 
   # Preconditioner type (jacobi or ssor)
   set Preconditioner type  = ssor
@@ -53,7 +53,7 @@ subsection Linear solver
   set Preconditioner relaxation  = 0.65
 
   # Type of solver used to solve the linear system (GMRES, CG, or Direct)
-  set Solver type              = Direct
+  set Solver type              = CG
 end
 
 
@@ -95,20 +95,20 @@ subsection Nonlinear solver
   set Max iterations Newton-Raphson = 100
 
   # Displacement error tolerance
-  set Tolerance displacement        = 1.0e-6
+  set Tolerance displacement        = 1.0e-4
 
   # Force residual tolerance
-  set Tolerance force               = 1.0e-6
+  set Tolerance force               = 1.0e-4
 end
 
 
 subsection Time
   # End time (add one time step, the last .vtu will 
   # correspond to time "End time - Time step size")
-  set End time       = 2.000
+  set End time       = 0.7000000001
 
   # Time step size
-  set Time step size = 0.025
+  set Time step size = 0.0125
 end
 
 

@@ -1703,6 +1703,11 @@ namespace Flexodeal
     std::vector<types::global_dof_index> global_dof_index_u_mid;
     std::vector<types::global_dof_index> global_dof_index_u_right;
 
+    std::vector<types::global_dof_index> global_dof_index_y_left;
+    std::vector<types::global_dof_index> global_dof_index_y_right;
+    std::vector<types::global_dof_index> global_dof_index_z_top;
+    std::vector<types::global_dof_index> global_dof_index_z_bottom;
+
     void output_results();
     void output_vtk() const;
     void output_along_fibre_stretch() const;
@@ -1713,6 +1718,7 @@ namespace Flexodeal
     void output_gearing_info() const;
     void output_activation_muscle_length();
     void ouput_displacements_at_select_locations() const;
+    void output_bulging_info();
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -2304,7 +2310,7 @@ namespace Flexodeal
     GridGenerator::hyper_rectangle(
       triangulation,
       (dim == 3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
-      (dim == 3 ? Point<dim>(parameters.length, parameters.height, parameters.width) : Point<dim>(parameters.length, parameters.height)),
+      (dim == 3 ? Point<dim>(parameters.length, parameters.width, parameters.height) : Point<dim>(parameters.length, parameters.height)),
       true);
     GridTools::scale(parameters.scale, triangulation);
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
@@ -4416,6 +4422,7 @@ namespace Flexodeal
     output_gearing_info();
     output_activation_muscle_length();
     ouput_displacements_at_select_locations();
+    output_bulging_info();
 
     timer.leave_subsection();
   }
@@ -4841,21 +4848,28 @@ namespace Flexodeal
 
     for (const auto &cell : triangulation.active_cell_iterators())
     {
-      fe_values.reinit(cell);
+      // We restrict the computation of these quantities to a slab in the
+      // middle of the domain to avoid averaging with outliers located
+      // at the ends of the block.
+      if (cell->center()[0] >= 3.0*parameters.length/8.0 &&
+          cell->center()[0] <= 5.0*parameters.length/8.0)
+      {          
+        fe_values.reinit(cell);
 
-      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
-          quadrature_point_history.get_data(cell);
-      Assert(lqph.size() == n_q_points, ExcInternalError());
+        const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+            quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
 
-      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
-      {
-        const double          stretch      = lqph[q_point]->get_stretch();
-        const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
-        const double          det_F        = lqph[q_point]->get_det_F();
-        const double          JxW          = fe_values.JxW(q_point);
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          const double          stretch      = lqph[q_point]->get_stretch();
+          const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
+          const double          det_F        = lqph[q_point]->get_det_F();
+          const double          JxW          = fe_values.JxW(q_point);
 
-        mean_stretch += stretch * det_F * JxW;
-        mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+          mean_stretch += stretch * det_F * JxW;
+          mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+        }
       }
     }
 
@@ -4965,7 +4979,7 @@ namespace Flexodeal
     if (parameters.type_of_simulation != "dynamic")
       return void();
     
-    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0;
+    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4973,32 +4987,39 @@ namespace Flexodeal
 
     for (const auto &cell : triangulation.active_cell_iterators())
     {
-      fe_values.reinit(cell);
-
-      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
-          quadrature_point_history.get_data(cell);
-      Assert(lqph.size() == n_q_points, ExcInternalError());
-
-      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      // We restrict the computation of these quantities to a slab in the
+      // middle of the domain to avoid averaging with outliers located
+      // at the ends of the block.
+      if (cell->center()[0] >= 3.0*parameters.length/8.0 &&
+          cell->center()[0] <= 5.0*parameters.length/8.0)
       {
-        // As in output_energies(), get_velocity_previous returns the current velocity.
-        const Tensor<1, dim> muscle_velocity = lqph[q_point]->get_velocity_previous();
-        // We now retrieve information related to the fibre velocity.
-        const double strain_rate = lqph[q_point]->get_strain_rate();
-        // The rest of the quantities are related to the integrals themselves, as usual.
-        const double det_F = lqph[q_point]->get_det_F();
-        const double JxW = fe_values.JxW(q_point);
+        fe_values.reinit(cell);
 
-        mean_muscle_velocity += muscle_velocity.norm() * det_F * JxW;
-        mean_strain_rate  += strain_rate * det_F * JxW;
+        const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+            quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          // As in output_energies(), get_velocity_previous returns the current velocity.
+          const Tensor<1, dim> muscle_velocity = lqph[q_point]->get_velocity_previous();
+          // We now retrieve information related to the fibre velocity.
+          const double strain_rate = lqph[q_point]->get_strain_rate();
+          // The rest of the quantities are related to the integrals themselves, as usual.
+          const double det_F = lqph[q_point]->get_det_F();
+          const double JxW = fe_values.JxW(q_point);
+
+          mean_muscle_velocity += muscle_velocity.norm() * det_F * JxW;
+          mean_strain_rate  += strain_rate * det_F * JxW;
+          volume_slab += det_F * JxW;
+        }
       }
     }
 
-    const double current_volume = compute_vol_current();
-    mean_muscle_velocity = mean_muscle_velocity / current_volume;
-    mean_strain_rate = mean_strain_rate / current_volume;
+    mean_muscle_velocity = mean_muscle_velocity / volume_slab;
+    mean_strain_rate = mean_strain_rate / volume_slab;
 
-    const double initial_fibre_length = parameters.length / parameters.muscle_fibre_orientation_x;
+    const double initial_fibre_length = parameters.height / parameters.muscle_fibre_orientation_z;
     const double strain_rate_naught = parameters.max_strain_rate;
 
     // Output time series:
@@ -5026,7 +5047,8 @@ namespace Flexodeal
               << "," << "Mean muscle velocity [m/s]"
               << "," << "Mean fibre strain rate (non-dim)"
               << "," << "Initial fibre length [m]"
-              << "," << "Maximum strain rate [1/s]" << "\n";
+              << "," << "Maximum strain rate [1/s]" 
+              << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
@@ -5036,7 +5058,8 @@ namespace Flexodeal
            << "," << mean_muscle_velocity
            << "," << mean_strain_rate
            << "," << initial_fibre_length
-           << "," << strain_rate_naught << "\n";
+           << "," << strain_rate_naught 
+           << "," << volume_slab << "\n";
   }
 
   template <int dim>
@@ -5108,6 +5131,110 @@ namespace Flexodeal
            << "," << u_right[0]
            << "," << u_right[1]
            << "," << u_right[2] << "\n";
+  }
+
+  template <int dim>
+  void Solid<dim>::output_bulging_info()
+  {
+    std::ostringstream filename;
+    filename << save_dir << "/bulging_data-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      // Set global DOF info and create file
+      bool found_top = false, found_bottom = false,
+          found_left = false, found_right = false,
+          all_points_found = false;
+
+      Point<dim> p_top(parameters.length/2, parameters.width/2, parameters.height);
+      Point<dim> p_bottom(parameters.length/2, parameters.width/2, 0.0);
+      Point<dim> p_left(parameters.length/2, 0.0, parameters.height/2);
+      Point<dim> p_right(parameters.length/2, parameters.width, parameters.height/2);
+      const double tol = 1e-14;
+
+      for (const auto &cell : dof_handler.active_cell_iterators())
+      {
+        if (!all_points_found)
+        {
+          for (const auto vertex : cell->vertex_indices())
+          {
+            if (!found_top)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_top; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_z_top.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_z_top.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_z_top.push_back(cell->vertex_dof_index(vertex,2));
+                found_top = true;
+              }
+            }
+
+            if (!found_bottom)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_bottom; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_z_bottom.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_z_bottom.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_z_bottom.push_back(cell->vertex_dof_index(vertex,2));
+                found_bottom = true;
+              }
+            }
+
+            if (!found_left)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_left; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_y_left.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_y_left.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_y_left.push_back(cell->vertex_dof_index(vertex,2));
+                found_left = true;
+              }
+            }
+
+            if (!found_right)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_right; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_y_right.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_y_right.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_y_right.push_back(cell->vertex_dof_index(vertex,2));
+                found_left = true;
+              }
+            }
+          }
+
+          all_points_found = found_top && found_bottom && found_left && found_right;
+        }
+        else
+          break;
+      }
+
+      // Create file
+      output.open(filename.str());
+      output << "Time [s]"
+            << "," << "u left [m]"
+            << "," << "u right [m]"
+            << "," << "u top [m]"
+            << "," << "u bottom [m]" << "\n";
+    }
+    else
+      output.open(filename.str(), std::ios_base::app); // Append contents to existing file
+
+    output << time.current() << std::fixed
+           << std::setprecision(8) << std::scientific
+           << "," << solution_n(global_dof_index_y_left[1])
+           << "," << solution_n(global_dof_index_y_right[1])
+           << "," << solution_n(global_dof_index_z_top[2])
+           << "," << solution_n(global_dof_index_z_bottom[2]) << "\n";
   }
   
 } // namespace Flexodeal
