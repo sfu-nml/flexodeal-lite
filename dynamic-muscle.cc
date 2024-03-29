@@ -702,7 +702,8 @@ namespace Flexodeal
     }
     double get_delta_t() const
     {
-      return delta_t;
+      //return delta_t;
+      return compute_delta_t();
     }
     unsigned int get_timestep() const
     {
@@ -711,11 +712,26 @@ namespace Flexodeal
     void increment()
     {
       time_previous = time_current;
-      time_current += delta_t;
+      //time_current += delta_t;
+      time_current += compute_delta_t();
       ++timestep;
     }
 
   private:
+    double compute_delta_t() const
+    {
+      double delta_t_computed = 0.0;
+
+      if (time_current <= 0.1)
+        delta_t_computed = 0.1 / 4;
+      else if (time_current > 0.1 && time_current <= 0.2)
+        delta_t_computed = 0.1 / 8;
+      else
+        delta_t_computed = delta_t;
+      
+      return delta_t_computed;
+    }
+
     unsigned int timestep;
     double       time_previous;
     double       time_current;
@@ -4838,9 +4854,7 @@ namespace Flexodeal
   template <int dim>
   void Solid<dim>::output_mean_stretch_and_pennation() const
   {
-    const double current_volume = compute_vol_current();
-
-    double mean_stretch = 0.0, mean_pennation = 0.0;
+    double mean_stretch = 0.0, mean_pennation = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4869,12 +4883,13 @@ namespace Flexodeal
 
           mean_stretch += stretch * det_F * JxW;
           mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+          volume_slab += det_F * JxW;
         }
       }
     }
 
-    mean_stretch = mean_stretch / current_volume;
-    mean_pennation = (mean_pennation * 180 / M_PI) / current_volume;
+    mean_stretch = mean_stretch / volume_slab;
+    mean_pennation = (mean_pennation * 180 / M_PI) / volume_slab;
 
     // Output time series
     std::ostringstream filename;
@@ -4886,7 +4901,8 @@ namespace Flexodeal
       output.open(filename.str());
       output << "Time [s]"
               << "," << "Mean stretch"
-              << "," << "Mean pennation [deg]" << "\n";
+              << "," << "Mean pennation [deg]" 
+              << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
@@ -4894,7 +4910,8 @@ namespace Flexodeal
     output << time.current() << std::fixed 
            << std::setprecision(4) << std::scientific
            << "," << mean_stretch
-           << "," << mean_pennation << "\n";
+           << "," << mean_pennation 
+           << "," << volume_slab << "\n";
   }
 
   // @sect4{Output stresses}
@@ -5048,10 +5065,13 @@ namespace Flexodeal
               << "," << "Mean fibre strain rate (non-dim)"
               << "," << "Initial fibre length [m]"
               << "," << "Maximum strain rate [1/s]" 
+              << "," << "Mean fibre velocity [m/s]"
               << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
+
+    double fibre_velocity = mean_strain_rate * initial_fibre_length * strain_rate_naught;
     
     output << time.current() << std::fixed 
            << std::setprecision(4) << std::scientific
@@ -5059,6 +5079,7 @@ namespace Flexodeal
            << "," << mean_strain_rate
            << "," << initial_fibre_length
            << "," << strain_rate_naught 
+           << "," << fibre_velocity
            << "," << volume_slab << "\n";
   }
 

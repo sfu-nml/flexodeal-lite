@@ -17,7 +17,7 @@ subsection Geometry
   set Global refinement   = 3
 
    # Length of the muscle block
-  set Length = 0.06
+  set Length = 0.03
 
   # Width of the muscle block
   set Width = 0.01
@@ -105,10 +105,10 @@ end
 subsection Time
   # End time (add one time step, the last .vtu will 
   # correspond to time "End time - Time step size")
-  set End time       = 0.7000000001
+  set End time       = 0.100000001
 
   # Time step size
-  set Time step size = 0.0125
+  set Time step size = 1.25e-03
 end
 
 
