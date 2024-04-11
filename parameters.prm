@@ -8,13 +8,13 @@ subsection Finite element system
   set Quadrature order  = 5
 
   # Type of simulation (dynamic or quasi-static)
-  set Type of simulation = dynamic
+  set Type of simulation = quasi-static
 end
 
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 2
+  set Global refinement   = 3
 
    # Length of the muscle block
   set Length = 0.03
@@ -47,13 +47,13 @@ subsection Linear solver
   set Use static condensation = false
 
   # Preconditioner type (jacobi or ssor)
-  set Preconditioner type  = ssor
+  set Preconditioner type  = jacobi
 
   # Preconditioner relaxation value
   set Preconditioner relaxation  = 0.65
 
   # Type of solver used to solve the linear system (GMRES, CG, or Direct)
-  set Solver type              = Direct
+  set Solver type              = CG
 end
 
 
@@ -64,15 +64,15 @@ subsection Materials
   # Fibre properties
   set Sigma naught muscle = 2.0e5
 
-  set Bulk modulus muscle = 1.0e6
+  set Bulk modulus muscle = 1.0e7
 
   set Max strain rate = 5.0
 
-  set Muscle x component = 0.86602540
+  set Muscle x component = 1.0
 
   set Muscle y component = 0.0
 
-  set Muscle z component = 0.50000000
+  set Muscle z component = 0.0
   
   # Base material properties
   set Sigma naught base material = 2.0e5
@@ -95,17 +95,17 @@ subsection Nonlinear solver
   set Max iterations Newton-Raphson = 100
 
   # Displacement error tolerance
-  set Tolerance displacement        = 1.0e-6
+  set Tolerance displacement        = 1.0e-4
 
   # Force residual tolerance
-  set Tolerance force               = 1.0e-6
+  set Tolerance force               = 1.0e-4
 end
 
 
 subsection Time
   # End time (add one time step, the last .vtu will 
   # correspond to time "End time - Time step size")
-  set End time       = 2.000
+  set End time       = 1.00000001
 
   # Time step size
   set Time step size = 0.025
