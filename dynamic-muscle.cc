@@ -4466,7 +4466,7 @@ namespace Flexodeal
 
     std::ostringstream filename;
     filename << save_dir << "/solution-" << dim << "d-" 
-             << std::setfill('0') << std::setw(3) << time.get_timestep() << ".vtu";
+             << std::setfill('0') << std::setw(4) << time.get_timestep() << ".vtu";
     
     std::ofstream output(filename.str().c_str());
     data_out.write_vtu(output);
@@ -4558,7 +4558,7 @@ namespace Flexodeal
 
     std::ostringstream filename;
     filename << save_dir << "/stretch-" << dim << "d-" 
-             << std::setfill('0') << std::setw(3) << time.get_timestep() << ".vtu";
+             << std::setfill('0') << std::setw(4) << time.get_timestep() << ".vtu";
     
     std::ofstream output(filename.str().c_str());
     data_out.write_vtu(output);
@@ -4768,7 +4768,7 @@ namespace Flexodeal
     {
       std::ostringstream filename;
       filename << save_dir << "/force_data-" << dim << "d-" 
-              << std::setfill('0') << std::setw(3) << time.get_timestep() << ".csv";
+              << std::setfill('0') << std::setw(4) << time.get_timestep() << ".csv";
       std::ofstream output(filename.str().c_str());
 
       output << "Boundary ID"
@@ -4950,7 +4950,7 @@ namespace Flexodeal
 
     std::ostringstream filename;
     filename << save_dir << "/stress-" << dim << "d-" 
-             << std::setfill('0') << std::setw(3) << time.get_timestep() << ".vtu";
+             << std::setfill('0') << std::setw(4) << time.get_timestep() << ".vtu";
     
     std::ofstream output(filename.str().c_str());
     data_out.write_vtu(output);
