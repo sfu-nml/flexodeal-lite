@@ -1703,6 +1703,10 @@ namespace Flexodeal
     std::vector<types::global_dof_index> global_dof_index_u_mid;
     std::vector<types::global_dof_index> global_dof_index_u_right;
 
+    // Iteration counts
+    unsigned int n_newton_iterations_per_timestep;
+    unsigned int n_linear_iterations_per_newton_iteration;
+
     void output_results();
     void output_vtk() const;
     void output_along_fibre_stretch() const;
@@ -1713,6 +1717,7 @@ namespace Flexodeal
     void output_gearing_info() const;
     void output_activation_muscle_length();
     void ouput_displacements_at_select_locations() const;
+    void output_iteration_counts();
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -2813,6 +2818,7 @@ namespace Flexodeal
     // the RHS may result from the time discretization and application of
     // constraints for the velocity and acceleration fields.
     unsigned int newton_iteration = 0;
+    unsigned int total_linear_iterations = 0;
     for (; newton_iteration < parameters.max_iterations_NR; ++newton_iteration)
       {
         std::cout << " " << std::setw(2) << newton_iteration << " "
@@ -2845,6 +2851,8 @@ namespace Flexodeal
         // solve the linearized system:
         const std::pair<unsigned int, double> lin_solver_output =
           solve_linear_system(newton_update);
+
+        total_linear_iterations += lin_solver_output.first;
 
         // We can now determine the normalized Newton update error:
         get_error_update(newton_update, error_update);
@@ -2906,6 +2914,9 @@ namespace Flexodeal
                   << "  " << error_update_norm.u << "  " << error_update_norm.p
                   << "  " << error_update_norm.J << "  " << std::endl;
       }
+
+    n_newton_iterations_per_timestep = newton_iteration;
+    n_linear_iterations_per_newton_iteration = total_linear_iterations / newton_iteration;
 
     // At the end, if it turns out that we have in fact done more iterations
     // than the parameter file allowed, we raise an exception that can be
@@ -4416,6 +4427,7 @@ namespace Flexodeal
     output_gearing_info();
     output_activation_muscle_length();
     ouput_displacements_at_select_locations();
+    output_iteration_counts();
 
     timer.leave_subsection();
   }
@@ -5108,6 +5120,29 @@ namespace Flexodeal
            << "," << u_right[0]
            << "," << u_right[1]
            << "," << u_right[2] << "\n";
+  }
+
+  template <int dim>
+  void Solid<dim>::output_iteration_counts()
+  {
+    std::ostringstream filename;
+    filename << save_dir << "/iteration_counts-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      output.open(filename.str());
+      output << "Time [s]"
+             << "," << "Newton iterations"
+             << "," << "Avg linear iterations per newton iteration" << "\n";
+    }
+    else
+    {
+      output.open(filename.str(), std::ios_base::app);
+      output << time.current()
+           << "," << n_newton_iterations_per_timestep
+           << "," << n_linear_iterations_per_newton_iteration << "\n";
+    }
   }
   
 } // namespace Flexodeal
