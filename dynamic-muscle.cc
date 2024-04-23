@@ -3193,7 +3193,7 @@ namespace Flexodeal
 
             // Dynamic contribution. For now, we hard code the density of the
             // material. In reality, this should come from the parameters file.
-            const double material_density = 1000;
+            const double material_density = parameters.muscle_density;
             const double dt               = time.get_delta_t();
 
             if (i_group == u_dof && parameters.type_of_simulation == "dynamic")
