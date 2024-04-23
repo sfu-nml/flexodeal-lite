@@ -64,7 +64,7 @@ subsection Materials
   # Fibre properties
   set Sigma naught muscle = 2.0e5
 
-  set Bulk modulus muscle = 1.0e6
+  set Bulk modulus muscle = 1.0e7
 
   set Max strain rate = 5.0
 
@@ -114,10 +114,10 @@ end
 subsection Time
   # End time (add one time step, the last .vtu will 
   # correspond to time "End time - Time step size")
-  set End time       = 0.500
+  set End time       = 0.50000000001
 
   # Time step size
-  set Time step size = 0.0125
+  set Time step size = 1e-03
 end
 
 

@@ -64,7 +64,7 @@ subsection Materials
   # Fibre properties
   set Sigma naught muscle = 2.0e5
 
-  set Bulk modulus muscle = 1.0e6
+  set Bulk modulus muscle = 1.0e7
 
   set Max strain rate = 5.0
 
