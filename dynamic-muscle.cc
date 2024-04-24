@@ -4401,7 +4401,7 @@ namespace Flexodeal
   // The output_results function looks a bit different from other tutorials.
   // This is because not only we're interested in visualizing Paraview files
   // but also traces (time series) of other quantities. The Paraview files
-  // are output in the output_vtk function.
+  // are exported in the output_vtk function.
   template <int dim>
   void Solid<dim>::output_results()
   {
@@ -5122,11 +5122,16 @@ int main(int argc, char* argv[])
 
   try
     {
+      // The program only works for dim = 3. 
+      // Maybe one day will also work for dim = 2 ...
       const unsigned int dim = 3;
       std::string parameters_file, strain_file, activation_file;
       
       if (argc == 1)
       {
+        // If no extra arguments are given (such as when calling "make run" 
+        // or just "./dynamic-muscle"), then the following files are
+        // considered by default:
         parameters_file = "parameters.prm";
         strain_file     = "control_points_strain.dat";
         activation_file = "control_points_activation.dat";
