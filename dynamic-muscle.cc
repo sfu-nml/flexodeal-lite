@@ -2304,7 +2304,7 @@ namespace Flexodeal
     GridGenerator::hyper_rectangle(
       triangulation,
       (dim == 3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
-      (dim == 3 ? Point<dim>(parameters.length, parameters.height, parameters.width) : Point<dim>(parameters.length, parameters.height)),
+      (dim == 3 ? Point<dim>(parameters.length, parameters.width, parameters.height) : Point<dim>(parameters.length, parameters.height)),
       true);
     GridTools::scale(parameters.scale, triangulation);
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
