@@ -2304,7 +2304,7 @@ namespace Flexodeal
     GridGenerator::hyper_rectangle(
       triangulation,
       (dim == 3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
-      (dim == 3 ? Point<dim>(parameters.length, parameters.height, parameters.width) : Point<dim>(parameters.length, parameters.height)),
+      (dim == 3 ? Point<dim>(parameters.length, parameters.width, parameters.height) : Point<dim>(parameters.length, parameters.height)),
       true);
     GridTools::scale(parameters.scale, triangulation);
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
@@ -4831,9 +4831,7 @@ namespace Flexodeal
   template <int dim>
   void Solid<dim>::output_mean_stretch_and_pennation() const
   {
-    const double current_volume = compute_vol_current();
-
-    double mean_stretch = 0.0, mean_pennation = 0.0;
+    double mean_stretch = 0.0, mean_pennation = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4841,26 +4839,35 @@ namespace Flexodeal
 
     for (const auto &cell : triangulation.active_cell_iterators())
     {
-      fe_values.reinit(cell);
-
-      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
-          quadrature_point_history.get_data(cell);
-      Assert(lqph.size() == n_q_points, ExcInternalError());
-
-      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      // We restrict the computation of these quantities to a slab in the
+      // middle of the domain to avoid averaging with outliers located
+      // at the ends of the block.
+      if (cell->center()[0] >= 3.0*parameters.length/8.0 &&
+          cell->center()[0] <= 5.0*parameters.length/8.0)
       {
-        const double          stretch      = lqph[q_point]->get_stretch();
-        const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
-        const double          det_F        = lqph[q_point]->get_det_F();
-        const double          JxW          = fe_values.JxW(q_point);
+        
+        fe_values.reinit(cell);
 
-        mean_stretch += stretch * det_F * JxW;
-        mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+        const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+            quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          const double          stretch      = lqph[q_point]->get_stretch();
+          const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
+          const double          det_F        = lqph[q_point]->get_det_F();
+          const double          JxW          = fe_values.JxW(q_point);
+
+          mean_stretch += stretch * det_F * JxW;
+          mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+          volume_slab += det_F * JxW;
+        }
       }
     }
 
-    mean_stretch = mean_stretch / current_volume;
-    mean_pennation = (mean_pennation * 180 / M_PI) / current_volume;
+    mean_stretch = mean_stretch / volume_slab;
+    mean_pennation = (mean_pennation * 180 / M_PI) / volume_slab;
 
     // Output time series
     std::ostringstream filename;
@@ -4872,7 +4879,8 @@ namespace Flexodeal
       output.open(filename.str());
       output << "Time [s]"
               << "," << "Mean stretch"
-              << "," << "Mean pennation [deg]" << "\n";
+              << "," << "Mean pennation [deg]" 
+              << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
@@ -4880,7 +4888,8 @@ namespace Flexodeal
     output << time.current() << std::fixed 
            << std::setprecision(4) << std::scientific
            << "," << mean_stretch
-           << "," << mean_pennation << "\n";
+           << "," << mean_pennation 
+           << "," << volume_slab << "\n";
   }
 
   // @sect4{Output stresses}
@@ -4965,7 +4974,7 @@ namespace Flexodeal
     if (parameters.type_of_simulation != "dynamic")
       return void();
     
-    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0;
+    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4973,32 +4982,44 @@ namespace Flexodeal
 
     for (const auto &cell : triangulation.active_cell_iterators())
     {
-      fe_values.reinit(cell);
-
-      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
-          quadrature_point_history.get_data(cell);
-      Assert(lqph.size() == n_q_points, ExcInternalError());
-
-      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      // We restrict the computation of these quantities to a slab in the
+      // middle of the domain to avoid averaging with outliers located
+      // at the ends of the block.
+      if (cell->center()[0] >= 3.0*parameters.length/8.0 &&
+          cell->center()[0] <= 5.0*parameters.length/8.0)
       {
-        // As in output_energies(), get_velocity_previous returns the current velocity.
-        const Tensor<1, dim> muscle_velocity = lqph[q_point]->get_velocity_previous();
-        // We now retrieve information related to the fibre velocity.
-        const double strain_rate = lqph[q_point]->get_strain_rate();
-        // The rest of the quantities are related to the integrals themselves, as usual.
-        const double det_F = lqph[q_point]->get_det_F();
-        const double JxW = fe_values.JxW(q_point);
+        fe_values.reinit(cell);
 
-        mean_muscle_velocity += muscle_velocity.norm() * det_F * JxW;
-        mean_strain_rate  += strain_rate * det_F * JxW;
+        const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+            quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          // As in output_energies(), get_velocity_previous returns the current velocity.
+          const Tensor<1, dim> muscle_velocity = lqph[q_point]->get_velocity_previous();
+          // We now retrieve information related to the fibre velocity.
+          const double strain_rate = lqph[q_point]->get_strain_rate();
+          // The rest of the quantities are related to the integrals themselves, as usual.
+          const double det_F = lqph[q_point]->get_det_F();
+          const double JxW = fe_values.JxW(q_point);
+
+          // We also decide to output the muscle velocity only in the x component,
+          // since this is the default line of action. If the line of action is changed,
+          // then this quantity must be updated properly.
+          mean_muscle_velocity += muscle_velocity[0] * det_F * JxW;
+          mean_strain_rate  += strain_rate * det_F * JxW;
+          volume_slab += det_F * JxW;
+        }
       }
     }
 
-    const double current_volume = compute_vol_current();
-    mean_muscle_velocity = mean_muscle_velocity / current_volume;
-    mean_strain_rate = mean_strain_rate / current_volume;
+    mean_muscle_velocity = mean_muscle_velocity / volume_slab;
+    mean_strain_rate = mean_strain_rate / volume_slab;
 
-    const double initial_fibre_length = parameters.length / parameters.muscle_fibre_orientation_x;
+    // We define the initial fibre length as 
+    // $L_f^0 = \dfrac{H}{\sin (\beta_0)} = \dfrac{H}{a_{0,z}}$
+    const double initial_fibre_length = parameters.height / parameters.muscle_fibre_orientation_z;
     const double strain_rate_naught = parameters.max_strain_rate;
 
     // Output time series:
@@ -5026,7 +5047,8 @@ namespace Flexodeal
               << "," << "Mean muscle velocity [m/s]"
               << "," << "Mean fibre strain rate (non-dim)"
               << "," << "Initial fibre length [m]"
-              << "," << "Maximum strain rate [1/s]" << "\n";
+              << "," << "Maximum strain rate [1/s]" 
+              << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
@@ -5036,7 +5058,8 @@ namespace Flexodeal
            << "," << mean_muscle_velocity
            << "," << mean_strain_rate
            << "," << initial_fibre_length
-           << "," << strain_rate_naught << "\n";
+           << "," << strain_rate_naught 
+           << "," << volume_slab << "\n";
   }
 
   template <int dim>
@@ -5082,7 +5105,6 @@ namespace Flexodeal
     {
       output.open(filename.str());
       output << "Time [s]"
-              << "," << "Activation (%)"
               << "," << "u left x [m]"
               << "," << "u left y [m]"
               << "," << "u left z [m]"
@@ -5107,7 +5129,8 @@ namespace Flexodeal
            << "," << u_mid[2]
            << "," << u_right[0]
            << "," << u_right[1]
-           << "," << u_right[2] << "\n";
+           << "," << u_right[2] 
+           << "," << parameters.length << "\n";
   }
   
 } // namespace Flexodeal
