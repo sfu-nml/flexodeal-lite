@@ -5105,7 +5105,6 @@ namespace Flexodeal
     {
       output.open(filename.str());
       output << "Time [s]"
-              << "," << "Activation (%)"
               << "," << "u left x [m]"
               << "," << "u left y [m]"
               << "," << "u left z [m]"
@@ -5130,7 +5129,8 @@ namespace Flexodeal
            << "," << u_mid[2]
            << "," << u_right[0]
            << "," << u_right[1]
-           << "," << u_right[2] << "\n";
+           << "," << u_right[2] 
+           << "," << parameters.length << "\n";
   }
   
 } // namespace Flexodeal
