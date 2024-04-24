@@ -4831,9 +4831,7 @@ namespace Flexodeal
   template <int dim>
   void Solid<dim>::output_mean_stretch_and_pennation() const
   {
-    const double current_volume = compute_vol_current();
-
-    double mean_stretch = 0.0, mean_pennation = 0.0;
+    double mean_stretch = 0.0, mean_pennation = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4841,26 +4839,35 @@ namespace Flexodeal
 
     for (const auto &cell : triangulation.active_cell_iterators())
     {
-      fe_values.reinit(cell);
-
-      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
-          quadrature_point_history.get_data(cell);
-      Assert(lqph.size() == n_q_points, ExcInternalError());
-
-      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      // We restrict the computation of these quantities to a slab in the
+      // middle of the domain to avoid averaging with outliers located
+      // at the ends of the block.
+      if (cell->center()[0] >= 3.0*parameters.length/8.0 &&
+          cell->center()[0] <= 5.0*parameters.length/8.0)
       {
-        const double          stretch      = lqph[q_point]->get_stretch();
-        const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
-        const double          det_F        = lqph[q_point]->get_det_F();
-        const double          JxW          = fe_values.JxW(q_point);
+        
+        fe_values.reinit(cell);
 
-        mean_stretch += stretch * det_F * JxW;
-        mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+        const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+            quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          const double          stretch      = lqph[q_point]->get_stretch();
+          const Tensor<1, dim>  orientation  = lqph[q_point]->get_orientation();    
+          const double          det_F        = lqph[q_point]->get_det_F();
+          const double          JxW          = fe_values.JxW(q_point);
+
+          mean_stretch += stretch * det_F * JxW;
+          mean_pennation += std::acos(orientation[0] / stretch) * det_F * JxW;
+          volume_slab += det_F * JxW;
+        }
       }
     }
 
-    mean_stretch = mean_stretch / current_volume;
-    mean_pennation = (mean_pennation * 180 / M_PI) / current_volume;
+    mean_stretch = mean_stretch / volume_slab;
+    mean_pennation = (mean_pennation * 180 / M_PI) / volume_slab;
 
     // Output time series
     std::ostringstream filename;
@@ -4872,7 +4879,8 @@ namespace Flexodeal
       output.open(filename.str());
       output << "Time [s]"
               << "," << "Mean stretch"
-              << "," << "Mean pennation [deg]" << "\n";
+              << "," << "Mean pennation [deg]" 
+              << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
@@ -4880,7 +4888,8 @@ namespace Flexodeal
     output << time.current() << std::fixed 
            << std::setprecision(4) << std::scientific
            << "," << mean_stretch
-           << "," << mean_pennation << "\n";
+           << "," << mean_pennation 
+           << "," << volume_slab << "\n";
   }
 
   // @sect4{Output stresses}
