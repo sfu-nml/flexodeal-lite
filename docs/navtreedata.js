@@ -24,10 +24,12 @@
 */
 var NAVTREE =
 [
-  [ "My Project Test", "index.html", [
-    [ "Flexodeal Lite", "md__r_e_a_d_m_e.html", [
-      [ "How to use it?", "md__r_e_a_d_m_e.html#autotoc_md1", null ],
-      [ "Latest line count", "md__r_e_a_d_m_e.html#autotoc_md2", null ]
+  [ "Flexodeal (Lite)", "index.html", [
+    [ "Flexodeal Lite", "index.html", "index" ],
+    [ "Introduction to Flexodeal", "01-introduction-to-flexodeal.html", [
+      [ "Mathematical formulation", "01-introduction-to-flexodeal.html#autotoc_md0", [
+        [ "Description of the stress tensor", "01-introduction-to-flexodeal.html#autotoc_md1", null ]
+      ] ]
     ] ],
     [ "Namespaces", "namespaces.html", [
       [ "Namespace List", "namespaces.html", "namespaces_dup" ]
@@ -55,9 +57,9 @@ var NAVTREE =
 
 var NAVTREEINDEX =
 [
-"annotated.html",
-"class_flexodeal_1_1_solid.html#a4c08edfde98e1f5feaa8bc79d7b337c0",
-"struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#a2581d0c72ab40ad7c12836b2ac85000a"
+"01-introduction-to-flexodeal.html",
+"class_flexodeal_1_1_solid.html#a3fdca7e7ae52a0a5439f78c5b4cf6402",
+"struct_flexodeal_1_1_parameters_1_1_measuring_locations.html"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronisation';

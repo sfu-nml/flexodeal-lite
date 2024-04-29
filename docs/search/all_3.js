@@ -1,17 +1,16 @@
 var searchData=
 [
-  ['d2psi_5fvol_5fdj2_0',['d2Psi_vol_dJ2',['../class_flexodeal_1_1_point_history.html#ae7035e91e62bdf5c270353918b0fbc30',1,'Flexodeal::PointHistory']]],
-  ['declare_5fparameters_1',['declare_parameters',['../struct_flexodeal_1_1_parameters_1_1_f_e_system.html#a56fa9ccafc1139138c25c4e1ba4ea6a6',1,'Flexodeal::Parameters::FESystem::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_geometry.html#a6d7a6498fb41ad08a0483974fa7dcef8',1,'Flexodeal::Parameters::Geometry::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_muscle_properties.html#ad486bb2702b055bfb50188d8c7cf6397',1,'Flexodeal::Parameters::MuscleProperties::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_linear_solver.html#a0a4ae86c65c9a1a2c67ed9459506e747',1,'Flexodeal::Parameters::LinearSolver::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_nonlinear_solver.html#ae335a303c713a20fb598d968b7e937f0',1,'Flexodeal::Parameters::NonlinearSolver::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_time.html#adae6d750c73653d348f7a847786cf287',1,'Flexodeal::Parameters::Time::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_prescribed_displacement.html#a3dc5effe5268b7170a74a87c064ba499',1,'Flexodeal::Parameters::PrescribedDisplacement::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#aacb403809a604bea280cb7e146bcb078',1,'Flexodeal::Parameters::MeasuringLocations::declare_parameters()'],['../struct_flexodeal_1_1_parameters_1_1_all_parameters.html#ace74b35a48b05643e7429f758576c900',1,'Flexodeal::Parameters::AllParameters::declare_parameters()']]],
-  ['degree_2',['degree',['../class_flexodeal_1_1_solid.html#a3f6af75537e3f1f4211b93abc3e1c1da',1,'Flexodeal::Solid']]],
-  ['delta_5ft_3',['delta_t',['../struct_flexodeal_1_1_parameters_1_1_time.html#aeda5a79a89309531f69c77defd0e8860',1,'Flexodeal::Parameters::Time::delta_t'],['../class_flexodeal_1_1_time.html#a8e8f7dff3163ca4f9ac3a6a6d1501257',1,'Flexodeal::Time::delta_t'],['../class_flexodeal_1_1_muscle___tissues___three___field.html#afb53741d561338708adf1308b1b9ecff',1,'Flexodeal::Muscle_Tissues_Three_Field::delta_t']]],
-  ['det_5ff_4',['det_F',['../class_flexodeal_1_1_muscle___tissues___three___field.html#aaf37bf847b2e066de3b9abf3b5166e5d',1,'Flexodeal::Muscle_Tissues_Three_Field']]],
-  ['determine_5fboundary_5fids_5',['determine_boundary_ids',['../class_flexodeal_1_1_solid.html#a767efda8452868ed18d08b33ad0d5816',1,'Flexodeal::Solid']]],
-  ['determine_5fcomponent_5fextractors_6',['determine_component_extractors',['../class_flexodeal_1_1_solid.html#a1c6675c1b23ae9c5161a293c77f8245e',1,'Flexodeal::Solid']]],
-  ['displacement_7',['displacement',['../class_flexodeal_1_1_point_history.html#a7fc15423e107c5f8234582946473447c',1,'Flexodeal::PointHistory']]],
-  ['displacement_5fprevious_8',['displacement_previous',['../class_flexodeal_1_1_point_history.html#ac3b730b88338062a84f3f3b007f1bb0c',1,'Flexodeal::PointHistory']]],
-  ['dof_5fhandler_9',['dof_handler',['../class_flexodeal_1_1_solid.html#a87773373b0693424bca5efe876d6246e',1,'Flexodeal::Solid']]],
-  ['dofs_5fper_5fblock_10',['dofs_per_block',['../class_flexodeal_1_1_solid.html#a9bd236163e13e471b2d85960b26a4aa3',1,'Flexodeal::Solid']]],
-  ['dofs_5fper_5fcell_11',['dofs_per_cell',['../class_flexodeal_1_1_solid.html#a1b420d2beaa92f14dbac2df7e02a8b2e',1,'Flexodeal::Solid']]],
-  ['dpsi_5fvol_5fdj_12',['dPsi_vol_dJ',['../class_flexodeal_1_1_point_history.html#aa97cd41ea45aa67e39395fe500f1250e',1,'Flexodeal::PointHistory']]],
-  ['dynamic_2dmuscle_2ecc_13',['dynamic-muscle.cc',['../dynamic-muscle_8cc.html',1,'']]]
+  ['c_0',['C',['../struct_flexodeal_1_1_solid_1_1_per_task_data___s_c.html#aaf78e83b3015602066816080a904daee',1,'Flexodeal::Solid::PerTaskData_SC']]],
+  ['c1_5fbasematerial_5fmuscle_1',['c1_basematerial_muscle',['../class_flexodeal_1_1_muscle___tissues___three___field.html#acc6ad6e53b47e6ed7d434c97a6afd4cf',1,'Flexodeal::Muscle_Tissues_Three_Field']]],
+  ['c2_5fbasematerial_5fmuscle_2',['c2_basematerial_muscle',['../class_flexodeal_1_1_muscle___tissues___three___field.html#a5a81617c613537ef980adbaada116a55',1,'Flexodeal::Muscle_Tissues_Three_Field']]],
+  ['c3_5fbasematerial_5fmuscle_3',['c3_basematerial_muscle',['../class_flexodeal_1_1_muscle___tissues___three___field.html#aa79cbcdb9c646fc8556a517f89cea4fc',1,'Flexodeal::Muscle_Tissues_Three_Field']]],
+  ['cell_5fmatrix_4',['cell_matrix',['../struct_flexodeal_1_1_solid_1_1_per_task_data___a_s_m.html#a44021fb36a902639c7dee57f56621aef',1,'Flexodeal::Solid::PerTaskData_ASM::cell_matrix'],['../struct_flexodeal_1_1_solid_1_1_per_task_data___s_c.html#aedcf4f0688e3af8e3829516ebc2fb96c',1,'Flexodeal::Solid::PerTaskData_SC::cell_matrix']]],
+  ['cell_5frhs_5',['cell_rhs',['../struct_flexodeal_1_1_solid_1_1_per_task_data___a_s_m.html#a18da63c98b2fa75c3d5e09804d4292ed',1,'Flexodeal::Solid::PerTaskData_ASM']]],
+  ['compute_5fvol_5fcurrent_6',['compute_vol_current',['../class_flexodeal_1_1_solid.html#aff8998aedeee9941e03a301a7fbfc60a',1,'Flexodeal::Solid']]],
+  ['constraints_7',['constraints',['../class_flexodeal_1_1_solid.html#aa7b82dad08c285f7a7f58657737fbb3e',1,'Flexodeal::Solid']]],
+  ['copy_5flocal_5fto_5fglobal_5fsc_8',['copy_local_to_global_sc',['../class_flexodeal_1_1_solid.html#aa7f305b1c150c986ec421d0894fd7013',1,'Flexodeal::Solid']]],
+  ['copy_5flocal_5fto_5fglobal_5ftimestep_9',['copy_local_to_global_timestep',['../class_flexodeal_1_1_solid.html#a0e4df657a225f66d693ea6389845f7f3',1,'Flexodeal::Solid']]],
+  ['copy_5flocal_5fto_5fglobal_5fuqph_10',['copy_local_to_global_UQPH',['../class_flexodeal_1_1_solid.html#ac913d6e4f02d130858b6fca59dc56485',1,'Flexodeal::Solid']]],
+  ['count_11',['Latest line count',['../index.html#autotoc_md4',1,'']]],
+  ['current_12',['current',['../class_flexodeal_1_1_time.html#a7f423b34797ec1d32fc55c7362b9a922',1,'Flexodeal::Time']]]
 ];

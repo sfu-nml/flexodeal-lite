@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['lite_0',['Flexodeal Lite',['../md__r_e_a_d_m_e.html',1,'']]]
+  ['introduction_20to_20flexodeal_0',['Introduction to Flexodeal',['../01-introduction-to-flexodeal.html',1,'']]]
 ];
