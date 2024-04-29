@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['z_5fleft_0',['z_left',['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#a76bcb9fe3d0122cb44d93130ecfcfcc1',1,'Flexodeal::Parameters::MeasuringLocations']]],
-  ['z_5fmid_1',['z_mid',['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#a6bcbab5c967e8cfe00e1bbcc1fb01d8a',1,'Flexodeal::Parameters::MeasuringLocations']]],
-  ['z_5fright_2',['z_right',['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#a15099118810f5772c65adab18e4bbddc',1,'Flexodeal::Parameters::MeasuringLocations']]]
+  ['y_5fleft_0',['y_left',['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#a984e15ad492619b26d845dc0a4e5619a',1,'Flexodeal::Parameters::MeasuringLocations']]],
+  ['y_5fmid_1',['y_mid',['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#a3bd35e96b48ccbe776d86c1bff3db91d',1,'Flexodeal::Parameters::MeasuringLocations']]],
+  ['y_5fright_2',['y_right',['../struct_flexodeal_1_1_parameters_1_1_measuring_locations.html#ac31fd15d30338718545bdfaae891dabf',1,'Flexodeal::Parameters::MeasuringLocations']]]
 ];
