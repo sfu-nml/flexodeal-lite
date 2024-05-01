@@ -14,16 +14,16 @@ end
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 3
+  set Global refinement   = 4
 
    # Length of the muscle block
-  set Length = 0.03
+  set Length = 18.6e-03
 
   # Width of the muscle block
-  set Width = 0.01
+  set Width = 6.95e-03
 
   # Height of the muscle block
-  set Height = 0.01
+  set Height = 6.58e-03
 
   # Global grid scaling factor
   set Grid scale          = 1
@@ -44,10 +44,10 @@ subsection Linear solver
   # Use static condensation and solve a 1-block system, or solve
   # the full 3-block system using Linear Operators and the Schur
   # complement
-  set Use static condensation = true
+  set Use static condensation = false
 
   # Preconditioner type (jacobi or ssor)
-  set Preconditioner type  = ssor
+  set Preconditioner type  = jacobi
 
   # Preconditioner relaxation value
   set Preconditioner relaxation  = 0.65
@@ -66,13 +66,13 @@ subsection Materials
 
   set Bulk modulus muscle = 1.0e7
 
-  set Max strain rate = 5.0
+  set Max strain rate = 5
 
-  set Muscle x component = 0.86602540
+  set Muscle x component = 0.8980
 
   set Muscle y component = 0.0
 
-  set Muscle z component = 0.50000000
+  set Muscle z component = 0.4399
   
   # Base material properties
   set Sigma naught base material = 2.0e5
@@ -92,7 +92,7 @@ subsection Nonlinear solver
   set Nonlinear solver type = classicNewton
 
   # Number of Newton-Raphson iterations allowed
-  set Max iterations Newton-Raphson = 100
+  set Max iterations Newton-Raphson = 200
 
   # Displacement error tolerance
   set Tolerance displacement        = 1.0e-4
@@ -105,10 +105,10 @@ end
 subsection Time
   # End time (add one time step, the last .vtu will 
   # correspond to time "End time - Time step size")
-  set End time       = 0.100000001
+  set End time       = 0.30000001 
 
   # Time step size
-  set Time step size = 1.25e-03
+  set Time step size = 6.2500e-03 
 end
 
 
@@ -119,17 +119,17 @@ end
 
 subsection Measuring locations
     # Left point coordinates
-    set Left X = 0.0075
-    set Left Y = 0.005
-    set Left Z = 0.005
+    set Left X = 2.325e-03
+    set Left Y = 3.475e-03
+    set Left Z = 3.290e-03
     
     # Middle point coordinates
-    set Mid X  = 0.015
-    set Mid Y  = 0.005
-    set Mid Z  = 0.005
+    set Mid X  = 9.3e-03
+    set Mid Y  = 3.475e-03
+    set Mid Z  = 3.290e-03
 
     # Right point coordinates
-    set Right X = 0.0225
-    set Right Y = 0.005
-    set Right Z = 0.005
+    set Right X = 16.275e-03
+    set Right Y = 3.475e-03
+    set Right Z = 3.290e-03
 end
