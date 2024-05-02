@@ -1,0 +1,130 @@
+# Listing of Parameters
+# ---------------------
+subsection Finite element system
+  # Displacement system polynomial order
+  set Polynomial degree = 2
+
+  # Gauss quadrature order
+  set Quadrature order  = 5
+
+  # Type of simulation (dynamic or quasi-static)
+  set Type of simulation = dynamic
+end
+
+
+subsection Geometry
+  # Global refinement level
+  set Global refinement   = 3
+
+   # Length of the muscle block
+  set Length = 18.6e-03
+
+  # Width of the muscle block
+  set Width = 6.95e-03
+
+  # Height of the muscle block
+  set Height = 6.58e-03
+
+  # Global grid scaling factor
+  set Grid scale          = 1
+
+  # Ratio of applied pressure to reference pressure
+  set Pressure ratio p/p0 = 0
+end
+
+
+subsection Linear solver
+  # Linear solver iterations (multiples of the system matrix size)
+  # In 2-d, this value is best set at 2. In 3-d, a value of 1 work fine.
+  set Max iteration multiplier = 2
+
+  # Linear solver residual (scaled by residual norm)
+  set Residual                 = 1e-6
+  
+  # Use static condensation and solve a 1-block system, or solve
+  # the full 3-block system using Linear Operators and the Schur
+  # complement
+  set Use static condensation = false
+
+  # Preconditioner type (jacobi or ssor)
+  set Preconditioner type  = jacobi
+
+  # Preconditioner relaxation value
+  set Preconditioner relaxation  = 0.65
+
+  # Type of solver used to solve the linear system (GMRES, CG, or Direct)
+  set Solver type              = CG
+end
+
+
+subsection Materials
+  # Density of muscle (kg/m^3)
+  set Muscle density = 1060
+
+  # Fibre properties
+  set Sigma naught muscle = 2.0e5
+
+  set Bulk modulus muscle = 1.0e7
+
+  set Max strain rate = 5
+
+  set Muscle x component = 0.8980
+
+  set Muscle y component = 0.0
+
+  set Muscle z component = 0.4399
+  
+  # Base material properties
+  set Sigma naught base material = 2.0e5
+
+  set Muscle base material factor = 1.0
+
+  set Muscle base material constant 1 = 0.1990559575103343
+
+	set Muscle base material constant 2 = 0.3662334826469149
+
+	set Muscle base material constant 3 = 0.0
+end
+
+
+subsection Nonlinear solver
+  # Type of nonlinear solve (classicNewton or acceleratedNewton)
+  set Nonlinear solver type = classicNewton
+
+  # Number of Newton-Raphson iterations allowed
+  set Max iterations Newton-Raphson = 200
+
+  # Displacement error tolerance
+  set Tolerance displacement        = 1.0e-4
+
+  # Force residual tolerance
+  set Tolerance force               = 1.0e-4
+end
+
+subsection Prescribed displacement
+    set Pulling face ID  = 1
+end
+
+
+subsection Measuring locations
+    # Left point coordinates
+    set Left X = 2.325e-03
+    set Left Y = 3.475e-03
+    set Left Z = 3.290e-03
+    
+    # Middle point coordinates
+    set Mid X  = 9.3e-03
+    set Mid Y  = 3.475e-03
+    set Mid Z  = 3.290e-03
+
+    # Right point coordinates
+    set Right X = 16.275e-03
+    set Right Y = 3.475e-03
+    set Right Z = 3.290e-03
+end
+
+# Added from Matlab
+subsection Time
+  set End time = 0.20500001 
+  set Time step size = 3.1250e-04 
+end
