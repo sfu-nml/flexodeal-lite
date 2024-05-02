@@ -761,7 +761,7 @@ namespace Flexodeal
       initialize_map(filename);
     }
 
-    double operator()(const double t);
+    double operator()(const double t) const;
 
   private:
     std::map<double,double> table_values;
@@ -789,7 +789,7 @@ namespace Flexodeal
   //   is in data range
   // - Retrieve the original y coordinate if found
   // - Output a constant value if t exceeds data range
-  double TabularFunction::operator()(const double t)
+  double TabularFunction::operator()(const double t) const
   {
     double out = 1000000; /*Bogus value*/
     auto iter_t = table_values.find(t);
@@ -4996,7 +4996,8 @@ namespace Flexodeal
     if (parameters.type_of_simulation != "dynamic")
       return void();
     
-    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0, volume_slab = 0.0;
+    Tensor<1,dim> mean_muscle_velocity;
+    double mean_strain_rate = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -5026,7 +5027,7 @@ namespace Flexodeal
           const double det_F = lqph[q_point]->get_det_F();
           const double JxW = fe_values.JxW(q_point);
 
-          mean_muscle_velocity += muscle_velocity.norm() * det_F * JxW;
+          mean_muscle_velocity += muscle_velocity * det_F * JxW;
           mean_strain_rate  += strain_rate * det_F * JxW;
           volume_slab += det_F * JxW;
         }
@@ -5061,7 +5062,11 @@ namespace Flexodeal
     {
       output.open(filename.str());
       output << "Time [s]"
-              << "," << "Mean muscle velocity [m/s]"
+              << "," << "Prescribed velocity x [m/s]"
+              << "," << "Mean muscle velocity x [m/s]"
+              << "," << "Mean muscle velocity y [m/s]"
+              << "," << "Mean muscle velocity z [m/s]"
+              << "," << "Mean muscle velocity norm [m/s]"
               << "," << "Mean fibre strain rate (non-dim)"
               << "," << "Initial fibre length [m]"
               << "," << "Maximum strain rate [1/s]" 
@@ -5072,10 +5077,15 @@ namespace Flexodeal
       output.open(filename.str(), std::ios_base::app);
 
     double fibre_velocity = mean_strain_rate * initial_fibre_length * strain_rate_naught;
+    double end_velocity = (u_dir(time.current()) - u_dir(time.previous()))/time.get_delta_t();
     
     output << time.current() << std::fixed 
            << std::setprecision(4) << std::scientific
-           << "," << mean_muscle_velocity
+           << "," << end_velocity
+           << "," << mean_muscle_velocity[0]
+           << "," << mean_muscle_velocity[1]
+           << "," << mean_muscle_velocity[2]
+           << "," << mean_muscle_velocity.norm()
            << "," << mean_strain_rate
            << "," << initial_fibre_length
            << "," << strain_rate_naught 
