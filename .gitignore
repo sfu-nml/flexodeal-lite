@@ -18,7 +18,6 @@ commit_text.md
 results/
 2024*/
 *.zip
-*.txt
 
 # Latex
 *.aux
