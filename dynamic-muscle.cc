@@ -512,7 +512,7 @@ namespace Flexodeal
       prm.enter_subsection("Prescribed displacement");
       {
         prm.declare_entry("Pulling face ID", "1",
-                          Patterns::Integer(0,6),
+                          Patterns::Integer(0),
                           "Boundary ID of face being pulled/pushed");
       }
       prm.leave_subsection();
@@ -1580,6 +1580,10 @@ namespace Flexodeal
     const double u_dir_n, u_dir_n_1;
   };
 
+  // Note that the implementation below relies on the line of action being
+  // the x-axis and that only the x component of the prescribed displacement
+  // is nonzero. If any of these conditions change, then the return value
+  // must be updated appropriately.
   template <>
   double IncrementalDisplacement<3>::value(const Point<3> &/*point*/,
                                            const unsigned int component) const
@@ -1677,11 +1681,12 @@ namespace Flexodeal
     {}
 
     void update_timestep();
-        void update_timestep_one_cell(
-            const typename DoFHandler<dim>::active_cell_iterator& cell,
-            ScratchData_TIMESTEP&                                 scratch,
-            PerTaskData_TIMESTEP&                                 data
-        );
+
+    void update_timestep_one_cell(
+        const typename DoFHandler<dim>::active_cell_iterator& cell,
+        ScratchData_TIMESTEP&                                 scratch,
+        PerTaskData_TIMESTEP&                                 data
+    );
 
     void copy_local_to_global_timestep(const PerTaskData_TIMESTEP& /*data*/)
     {}
@@ -1863,14 +1868,6 @@ namespace Flexodeal
     , triangulation(Triangulation<dim>::maximum_smoothing)
     , time(parameters.end_time, parameters.delta_t)
     , timer(std::cout, TimerOutput::summary, TimerOutput::wall_times)
-    //, u_dir(parameters.pull_time_start,
-    //        parameters.pull_time_end,
-    //        parameters.pull_strain,
-    //        parameters.pull_strain_rate,
-    //        parameters.length * parameters.scale)
-    //, activation_function(parameters.activation_start,
-    //                      parameters.activation_end,
-    //                      parameters.activation_level)
     , u_dir(strain_file)
     , activation_function(activation_file)
     , degree(parameters.poly_degree)
@@ -4585,7 +4582,6 @@ namespace Flexodeal
 
       for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
       {
-        const double det_F                              = lqph[q_point]->get_det_F();
         const Tensor<2, dim> F_inv                      = lqph[q_point]->get_F_inv();
         const SymmetricTensor<2, dim> tau               = lqph[q_point]->get_tau();
         const SymmetricTensor<2, dim> tau_vol           = lqph[q_point]->get_tau_vol();
@@ -4601,7 +4597,7 @@ namespace Flexodeal
         // so it is safe to call this variable velocity_current in this context.
         const Tensor<1, dim> velocity_current = lqph[q_point]->get_velocity_previous();
         
-        kinetic_energy += 0.5 * det_F * parameters.muscle_density * velocity_current * velocity_current * JxW;
+        kinetic_energy += 0.5 * parameters.muscle_density * velocity_current * velocity_current * JxW;
         energy_int += symm_grad_displacement * tau * JxW;
         energy_vol += symm_grad_displacement * tau_vol * JxW;
         energy_iso += symm_grad_displacement * tau_iso * JxW;
