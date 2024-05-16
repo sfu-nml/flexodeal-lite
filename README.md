@@ -16,6 +16,10 @@ Check out this [cool video](https://youtu.be/CCTiSV1Vl7o) of a fully dynamic, fu
 - Call make. A simple call to ```make``` should suffice.
 - Run the code. This either achieved by calling ``` make run``` or ```./dynamic-muscle parameters.prm control_points_strain.dat control_points_activation.dat ```. A folder with the current timestamp will be created. This is where the results of your execution will be stored.
 
+## How long does it take to run?
+
+In an Intel i5-9600K (3.70 GHz x 6) machine the code with its default settings (dynamic) takes about 6 minutes to complete 500 ms of simulation. In turn, the quasi-static code (`set Type of simulation = quasi-static`) takes only 18 seconds! That speaks volumes about the nonlinearity of the dynamic problem.
+
 ## Latest line count
 
 ```
