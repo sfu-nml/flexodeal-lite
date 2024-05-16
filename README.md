@@ -24,24 +24,25 @@ Check out this cool video of a fully dynamic, fully active, isometric contractio
 ## Latest line count
 
 ```
-Tue May 14 18:19:05 PDT 2024
+Wed May 15 21:37:28 PDT 2024
 
 >> cloc --exclude-dir=2024* --exclude-lang=JSON,XML,make .
     
-    11 text files.
-    11 unique files.                              
-     7 files ignored.
+    18 text files.
+    18 unique files.                              
+    14 files ignored.
 
-github.com/AlDanial/cloc v 1.90  T=0.02 s (267.5 files/s, 313641.8 lines/s)
+github.com/AlDanial/cloc v 1.74  T=0.05 s (105.1 files/s, 117705.1 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-C++                              1            680           1374           3142
-TeX                              2            119             83            376
-Markdown                         1             14              0             35
+C++                              1            696           1081           3160
+TeX                              1             84             56            255
+Visual Basic                     1             35              0            148
+Markdown                         1             14              0             33
 CMake                            1              6             15             18
 -------------------------------------------------------------------------------
-SUM:                             5            819           1472           3571
+SUM:                             5            835           1152           3614
 -------------------------------------------------------------------------------
 
 ```

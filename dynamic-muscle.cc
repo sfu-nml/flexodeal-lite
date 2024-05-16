@@ -1,6 +1,7 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2024 by Javier Almonacid
+ * Flexodeal Lite
+ * Copyright (C) 2024 Neuromuscular Mechanics Laboratory
  *
  * This file is part of the Flexodeal library
  *
@@ -12,15 +13,44 @@
  * the top level directory of Flexodeal.
  *
  * ---------------------------------------------------------------------
-
- *
- * Author: Javier Almonacid, Simon Fraser University
+ * 
+ * Author: Javier Almonacid
+ *         PhD Candidate, Applied and Computational Mathematics
+ *         Neuromuscular Mechanics Laboratory (NML)
+ *         Simon Fraser University
+ *         Spring 2024
+ * 
+ * This software has been created based on the "muscle code" developed by
+ * members of the NML since 2014:
+ * 
+ *         Ryan N. Konno
+ *         Cassidy Tam
+ *         Sebastian A. Dominguez-Rivera
+ *         Stephanie A. Ross
+ *         David Ryan
+ *         Hadi Rahemi
+ *         Prof. James M. Wakeling (SFU Biomedical Physiology and Kinesiology)
+ *         Prof. Nilima Nigam (SFU Mathematics)
+ * 
+ * Furthermore, the structure of the code is based on deal.II's step-44 tutorial:
+ * 
+ *         Pelteret, J.-P., & McBride, A. (2012). The deal.II tutorial step-44: 
+ *         Three-field formulation for non-linear solid mechanics. 
+ *         Zenodo. https://doi.org/10.5281/zenodo.439772
+ * 
+ * Some comments have been preserved from step-44 to increase readability of the
+ * code. The mathematical details of the muscle model in use are available here:
+ * 
+ *         Almonacid, J. A., Domínguez-Rivera, S. A., Konno, R. N., Nigam, N., 
+ *         Ross, S. A., Tam, C., & Wakeling, J. M. (2024). 
+ *         A three-dimensional model of skeletal muscle tissues. 
+ *         SIAM Journal on Applied Mathematics, S538-S566.
+ * 
+ * 
  */
 
-
-// We start by including all the necessary deal.II header files and some C++
-// related ones. They have been discussed in detail in previous tutorial
-// programs, so you need only refer to past tutorials for details.
+// First, we include all the headers necessary for this code. All the headers
+// (with the exception of fe_dgq.h) have already been discussed in step-44.
 #include <deal.II/base/function.h>
 #include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/point.h>
@@ -32,8 +62,6 @@
 #include <deal.II/dofs/dof_renumbering.h>
 #include <deal.II/dofs/dof_tools.h>
 
-// This header gives us the functionality to store
-// data at quadrature points
 #include <deal.II/base/quadrature_point_data.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -61,20 +89,12 @@
 #include <deal.II/lac/sparse_direct.h>
 #include <deal.II/lac/affine_constraints.h>
 
-// Here are the headers necessary to use the LinearOperator class.
-// These are also all conveniently packaged into a single
-// header file, namely <deal.II/lac/linear_operator_tools.h>
-// but we list those specifically required here for the sake
-// of transparency.
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/packaged_operation.h>
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/vector_tools.h>
 
-// Defined in these two headers are some operations that are pertinent to
-// finite strain elasticity. The first will help us compute some kinematic
-// quantities, and the second provides some stanard tensor definitions.
 #include <deal.II/physics/elasticity/kinematics.h>
 #include <deal.II/physics/elasticity/standard_tensors.h>
 
@@ -83,9 +103,7 @@
 #include <fstream>
 
 
-// We then stick everything that relates to this tutorial program into a
-// namespace of its own, and import all the deal.II function and class names
-// into it:
+// Then, we place all functions and classes inside a namespace of its own.
 namespace Flexodeal
 {
   using namespace dealii;
@@ -154,9 +172,10 @@ namespace Flexodeal
 
     // @sect4{Geometry}
 
-    // Make adjustments to the problem geometry and the applied load.  Since the
-    // problem modelled here is quite specific, the load scale can be altered to
-    // specific values to compare with the results given in the literature.
+    // Next, we process the parameters related to the geometry of the problem.
+    // To keep things simple, we consider a block of muscle tissue of given
+    // length, width, and height. Note that this structure will probably have
+    // to be adjusted whenever a different geometry is considered.
     struct Geometry
     {
       unsigned int global_refinement;
@@ -221,6 +240,9 @@ namespace Flexodeal
 
     // @sect4{Muscle properties}
 
+    // Then, we process all the intrinsic properties of muscle tissue.
+    // In this model, muscle is viewed as a bundle of muscle fibres 
+    // surrounded by a base material.
     struct MuscleProperties
     {
       double muscle_density;
@@ -399,9 +421,8 @@ namespace Flexodeal
 
     // @sect4{Nonlinear solver}
 
-    // A Newton-Raphson scheme is used to solve the nonlinear system of
-    // governing equations.  We now define the tolerances and the maximum number
-    // of iterations for the Newton-Raphson nonlinear solver.
+    // A Newton scheme is used to solve the nonlinear system of governing
+    // equations. Below we process the stopping criteria for the solver.
     struct NonlinearSolver
     {
       std::string  type_nonlinear_solver;
@@ -491,11 +512,11 @@ namespace Flexodeal
 
     // @sect4{PrescribedDisplacement}
 
-    // Set the parameters for the prescribed displacement.
-    // Note that because the profile itself is given from
-    // the .dat file, the only thing we keep track here
-    // is which face we are pulling from because this is
-    // where we measure forces.
+    // Set the parameters for the prescribed displacement. Because the profile 
+    // itself is given from control_points_strain.dat file, the only thing we 
+    // keep track here is the ID of the face we are pulling/pushing from. This
+    // is critical to correctly identify the face for which forces will be
+    // reported as a time series.
     struct PrescribedDisplacement
     {
       unsigned int pulling_face_id;
@@ -810,7 +831,16 @@ namespace Flexodeal
   // where $\sigma_{Hill} = \sigma_0 \left\{ a(t) \sigma_L(\lambda) 
   // \sigma_V(\epsilon) + \sigma_P(\lambda) \right\}$.
   //
-  // In turn, the base material component is given by Yeoh SEF.
+  // In turn, the base material component is simply given by a Yeoh SEF.
+  //
+  // A note on quasi-incompressibility of muscle: 
+  // 
+  //  Technically, muscle is compressible (Baskin & Paolini 1966). However, the 
+  //  magnitude of this volume change is so small that most physiologists would
+  //  consider muscle as "incompressible". Therefore, the volume changes that we
+  //  expect here will (and have to) be small and the dilation J will hover around
+  //  the value of 1. From a numerical perspective, though these changes are small,
+  //  they are extremely important to prevent locking effects.
   template <int dim>
   class Muscle_Tissues_Three_Field
   {
@@ -1304,12 +1334,14 @@ namespace Flexodeal
 
   // @sect3{Quadrature point history}
 
-  // As seen in step-18, the <code> PointHistory </code> class offers a method
-  // for storing data at the quadrature points.  Here each quadrature point
-  // holds a pointer to a material description.  Thus, different material models
-  // can be used in different regions of the domain.  Among other data, we
+  // As seen in step-44, the <code> PointHistory </code> class offers a method
+  // for storing data at the quadrature points. Here each quadrature point
+  // holds a pointer to a material description. Among other data, we
   // choose to store the Kirchhoff stress $\boldsymbol{\tau}$ and the tangent
-  // $J\mathfrak{c}$ for the quadrature points.
+  // $J\mathfrak{c}$ for the quadrature points. It will also be useful to compute
+  // forces and energies to store separately the different contributions to the 
+  // Kirchhoff stress. Moreover, for the dynamic computation, this is the place
+  // where we store "previous" variables.
   template <int dim>
   class PointHistory
   {
@@ -1338,8 +1370,10 @@ namespace Flexodeal
     // The first function is used to create a material object and to
     // initialize all tensors correctly: The second one updates the stored
     // values and stresses based on the current deformation measure
-    // $\textrm{Grad}\mathbf{u}_{\textrm{n}}$, pressure $\widetilde{p}$ and
-    // dilation $\widetilde{J}$ field values.
+    // $\textrm{Grad}\mathbf{u}_{\textrm{n}}$, pressure $\widetilde{p}$, 
+    // dilation $\widetilde{J}$ field values, fibre activation $a(t^n)$,
+    // and time step size $\delta t$ (recall that the elasticity tensor
+    // in the dynamic computation depends on the current time step size).
     void setup_lqp(const Parameters::AllParameters &parameters)
     {
       material =
@@ -1403,19 +1437,21 @@ namespace Flexodeal
       //
       // We also store the inverse of the deformation gradient since we
       // frequently use it:
-      F_inv         = invert(F);
-      tau           = material->get_tau();
+      F_inv                       = invert(F);
+      tau                         = material->get_tau();
       tau                         = material->get_tau();
       tau_vol                     = material->get_tau_vol();
       tau_iso                     = material->get_tau_iso();
       tau_iso_muscle_active       = material->get_tau_iso_muscle_active();
       tau_iso_muscle_passive      = material->get_tau_iso_muscle_passive();
       tau_iso_muscle_basematerial = material->get_tau_iso_muscle_basematerial();
-      Jc            = material->get_Jc();
-      dPsi_vol_dJ   = material->get_dPsi_vol_dJ();
-      d2Psi_vol_dJ2 = material->get_d2Psi_vol_dJ2();
+      Jc                          = material->get_Jc();
+      dPsi_vol_dJ                 = material->get_dPsi_vol_dJ();
+      d2Psi_vol_dJ2               = material->get_d2Psi_vol_dJ2();
     }
 
+    // Next, we implement a function that will update the previous variables once
+    // the nonlinear step has been completely solved.
     void update_values_timestep(Time &time_object)
     {
       velocity_previous     = (displacement - displacement_previous) / time_object.get_delta_t();
@@ -1424,8 +1460,8 @@ namespace Flexodeal
       F_previous            = invert(F_inv);
     }
 
-    // We offer an interface to retrieve certain data.  Here are the kinematic
-    // variables:
+    // We then offer an interface to retrieve certain data.  
+    // First, some kinematic variables:
     double get_J_tilde() const
     {
       return material->get_J_tilde();
@@ -1466,7 +1502,7 @@ namespace Flexodeal
       return F_inv;
     }
 
-    // (and for the dynamic case)
+    // ... and in particular for the dynamic case:
     const Tensor<1, dim> &get_displacement() const
     {
       return displacement;
@@ -1487,8 +1523,8 @@ namespace Flexodeal
       return velocity_previous;
     }
 
-    // ...and the kinetic variables.  These are used in the material and
-    // global tangent matrix and residual assembly operations:
+    // Finally, some kinetic variables. These are used in the
+    // tangent matrix and residual assembly operations:
     double get_p_tilde() const
     {
       return material->get_p_tilde();
@@ -1534,22 +1570,18 @@ namespace Flexodeal
       return d2Psi_vol_dJ2;
     }
 
-    // And finally the tangent:
+    // Finally, the tangent matrix itself.
     const SymmetricTensor<4, dim> &get_Jc() const
     {
       return Jc;
     }
 
-    // In terms of member functions, this class stores for the quadrature
-    // point it represents a copy of a material type in case different
-    // materials are used in different regions of the domain, as well as the
-    // inverse of the deformation gradient...
+  // In the spirit of encapsulation, everything that is not needed
+  // outside this class is defined as a private member.
   private:
     std::shared_ptr<Muscle_Tissues_Three_Field<dim>> material;
 
-    Tensor<2, dim> F_inv;
-
-    // ... and stress-type variables along with the tangent $J\mathfrak{c}$:
+    Tensor<2, dim>          F_inv;
     SymmetricTensor<2, dim> tau;
     SymmetricTensor<2, dim> tau_vol;
     SymmetricTensor<2, dim> tau_iso;
@@ -1566,11 +1598,11 @@ namespace Flexodeal
     Tensor<1, dim> displacement_previous;
     Tensor<2, dim> grad_displacement; // This variable is needed to compute energies
     Tensor<1, dim> velocity_previous;
-    Tensor<2, dim> grad_velocity; // This variable is updated at each Newton iteration
-    Tensor<2, dim> F_previous; // This variable is updated at each time step
+    Tensor<2, dim> grad_velocity;     // This variable is updated at each Newton iteration
+    Tensor<2, dim> F_previous;        // This variable is updated at each time step
   };
 
-  // @sect4{Incremental displacement class}
+  // @sect3{Incremental displacement class}
 
   // An important note in this class: because this will be fed into
   // the VectorTools::interpolate_boundary_values function, it MUST
@@ -1583,7 +1615,8 @@ namespace Flexodeal
   // yet, we must hard code this. Note also that, although this might
   // sound like we are about to implement a boundary condition
   // for all three variables (i.e. including pressure and dilation),
-  // this discrepancy will be solved when calling component_mask.
+  // this discrepancy will be solved when calling component_mask
+  // at the time of calling VectorTools::interpolate_boundary_values.
   template <int dim>
   class IncrementalDisplacement : public Function<dim>
   {
@@ -1613,7 +1646,7 @@ namespace Flexodeal
     return (component == 0) ? (u_dir_n - u_dir_n_1) : 0.0;
   }
 
-  // @sect3{Quasi-static quasi-incompressible finite-strain solid}
+  // @sect3{Dynamic quasi-incompressible finite-strain solid}
 
   // The Solid class is the central class in that it represents the problem at
   // hand. It follows the usual scheme in that all it really has is a
@@ -1730,6 +1763,8 @@ namespace Flexodeal
     std::vector<types::global_dof_index> global_dof_index_u_mid;
     std::vector<types::global_dof_index> global_dof_index_u_right;
 
+    // Several outputs to assess our results. The first function 
+    // below will call all the other ones.
     void output_results();
     void output_vtk() const;
     void output_along_fibre_stretch() const;
@@ -1924,7 +1959,7 @@ namespace Flexodeal
            ExcMessage("This problem only works in 2 or 3 space dimensions."));
     determine_component_extractors();
 
-    // Initialize save_dir
+    // Initialize save_dir first with the current timestamp.
     std::chrono::system_clock::time_point time_now;
     time_t time_conv;
     struct tm* timeinfo;
@@ -1933,6 +1968,10 @@ namespace Flexodeal
     time_conv = std::chrono::system_clock::to_time_t(time_now);
     timeinfo = localtime(&time_conv);
     strftime(save_dir,80,"%Y%m%d_%H%M%S",timeinfo);
+
+    // Then, we append to the timestamp some letters to
+    // quickly visualize the type of simulation that we just
+    // performed:
 
     // Append _Q or _D depending on the type of simulation
     if (parameters.type_of_simulation == "quasi-static")
@@ -1970,15 +2009,9 @@ namespace Flexodeal
   }
 
 
-  // In solving the quasi-static problem, the time becomes a loading parameter,
-  // i.e. we increasing the loading linearly with time, making the two concepts
-  // interchangeable. We choose to increment time linearly using a constant time
-  // step size.
-  //
-  // We start the function with preprocessing, setting the initial dilatation
-  // values, and then output the initial grid before starting the simulation
-  //  proper with the first time (and loading)
-  // increment.
+  // Similarly to step-44, we start the function with preprocessing, 
+  // setting the initial dilatation values, and then output the initial 
+  // grid and the parameters used before starting the simulation in itself.
   //
   // Care must be taken (or at least some thought given) when imposing the
   // constraint $\widetilde{J}=1$ on the initial solution field. The constraint
@@ -2051,14 +2084,12 @@ namespace Flexodeal
         solve_nonlinear_timestep(solution_delta);
         solution_n += solution_delta;
 
-        // ...and plot the results before moving on happily to the next time
-        // step:
+        // ...and output the results (including VTU files) before moving on 
+        // happily to the next time step:
         output_results();
 
         // If our computation is dynamic (rather than quasi-static),
-        // then we have to update the "previous" variables. These two
-        // lines below are one of the major differences with respect to 
-        // the original step-44.
+        // then we have to update the "previous" variables. 
         if (parameters.type_of_simulation == "dynamic")
             update_timestep();
 
@@ -2312,8 +2343,7 @@ namespace Flexodeal
 
   // On to the first of the private member functions. Here we create the
   // triangulation of the domain, for which we choose the scaled cube with each
-  // face given a boundary ID number.  The grid must be refined at least once
-  // for the indentation problem.
+  // face given a boundary ID number.
   //
   // We then determine the volume of the reference configuration and print it
   // for comparison:
@@ -2334,12 +2364,7 @@ namespace Flexodeal
               << "\n\t Mass:             " << vol_reference * parameters.muscle_density << " kg"
               << "\n" << std::endl;
 
-
-    /*
-      BLOCK OF CODE REMOVED. MUSCLE BLOCK WON'T HAVE ID = 6 FOR NOW.
-    */
-
-    // Output grid
+    // then, we output the grid used for future reference.
     {
       std::ostringstream filename;
       filename << save_dir << "/grid-" << dim << "d"<< ".msh";
@@ -2725,7 +2750,10 @@ namespace Flexodeal
                                    time.get_delta_t());
   }
 
-  // This is a dummy structure that is required for Workstream.
+  // The update at the end of the time step is even simpler. It only needs to
+  // make multiple calls to PointHistory<dim>::update_values_timestep.
+
+  // These are dummy structure that is required for Workstream.
   template <int dim>
   struct Solid<dim>::PerTaskData_TIMESTEP
   {
@@ -2780,7 +2808,7 @@ namespace Flexodeal
 
   // @sect4{Solid::solve_nonlinear_timestep}
 
-  // The next function is the driver method for the Newton-Raphson scheme. At
+  // The next function is the driver method for the Newton scheme. At
   // its top we create a new vector to store the current Newton update step,
   // reset the error storage objects and print solver header.
   template <int dim>
@@ -3100,7 +3128,6 @@ namespace Flexodeal
     error_update.p    = error_ud.block(p_dof).l2_norm();
     error_update.J    = error_ud.block(J_dof).l2_norm();
   }
-
 
 
   // @sect4{Solid::get_total_solution}
@@ -3445,12 +3472,7 @@ namespace Flexodeal
   // the two first iterations of Newton's algorithm. In general, one would
   // build non-homogeneous constraints in the zeroth iteration (that is, when
   // `apply_dirichlet_bc == true` in the code block that follows) and build
-  // only the corresponding homogeneous constraints in the following step. While
-  // the current example has only homogeneous constraints, previous experiences
-  // have shown that a common error is forgetting to add the extra condition
-  // when refactoring the code to specific uses. This could lead to errors that
-  // are hard to debug. In this spirit, we choose to make the code more verbose
-  // in terms of what operations are performed at each Newton step.
+  // only the corresponding homogeneous constraints in the following step.
   template <int dim>
   void Solid<dim>::make_constraints(const int it_nr)
   {
@@ -3484,27 +3506,13 @@ namespace Flexodeal
         // in displacement is non-constant between each time step.
         constraints.clear();
 
-        // The boundary conditions for the indentation problem in 3D are as
-        // follows: On the -x, -y and -z faces (IDs 0,2,4) we set up a symmetry
-        // condition to allow only planar movement while the +x and +z faces
-        // (IDs 1,5) are traction free. In this contrived problem, part of the
-        // +y face (ID 3) is set to have no motion in the x- and z-component.
-        // Finally, as described earlier, the other part of the +y face has an
-        // the applied pressure but is also constrained in the x- and
-        // z-directions.
-        //
-        // In the following, we will have to tell the function interpolation
-        // boundary values which components of the solution vector should be
-        // constrained (i.e., whether it's the x-, y-, z-displacements or
-        // combinations thereof). This is done using ComponentMask objects (see
-        // @ref GlossComponentMask) which we can get from the finite element if we
-        // provide it with an extractor object for the component we wish to
-        // select. To this end we first set up such extractor objects and later
-        // use it when generating the relevant component masks:
         const FEValuesExtractors::Scalar x_displacement(0);
         const FEValuesExtractors::Scalar y_displacement(1);
         const FEValuesExtractors::Scalar z_displacement(2);
 
+        // In this particular problem, we have Dirichlet conditions on two faces.
+        // First, the -X face is fixed, which means that we impose zero displacements
+        // on all three directions.
         {
           const int boundary_id = 0;
 
@@ -3516,8 +3524,12 @@ namespace Flexodeal
             (fe.component_mask(x_displacement) | fe.component_mask(y_displacement) | fe.component_mask(z_displacement)));
         }
 
+        // Then, on the face we are pulling, we implement the incremental displacement 
+        // using the IncrementalDisplacement class. Note that, because the input reads 
+        // *strains*, these have to be scaled by the muscle length to obtain 
+        // displacements in units of length.
         {
-          const int boundary_id = parameters.pulling_face_id; // Which in most cases will be equal to 1
+          const int boundary_id = parameters.pulling_face_id; 
 
           VectorTools::interpolate_boundary_values(
             dof_handler,
@@ -3528,7 +3540,7 @@ namespace Flexodeal
             (fe.component_mask(x_displacement) | fe.component_mask(y_displacement) | fe.component_mask(z_displacement)));
         }
 
-        // All other faces are traction-free.
+        // All other faces are traction-free, so no need for more lines of code here.
 
       }
     else
@@ -3629,9 +3641,9 @@ namespace Flexodeal
   }
 
 
-  // Now we describe the static condensation process. As per usual, we must
-  // first find out which global numbers the degrees of freedom on this cell
-  // have and reset some data structures:
+  // The function below is pretty much a verbatim copy of the one
+  // in step-44, so we refer the reader to the tutorial for further
+  // details (which are nicely explained there!).
   template <int dim>
   void Solid<dim>::assemble_sc_one_cell(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
@@ -3642,115 +3654,9 @@ namespace Flexodeal
     scratch.reset();
     cell->get_dof_indices(data.local_dof_indices);
 
-    // We now extract the contribution of the dofs associated with the current
-    // cell to the global stiffness matrix.  The discontinuous nature of the
-    // $\widetilde{p}$ and $\widetilde{J}$ interpolations mean that their is
-    // no coupling of the local contributions at the global level. This is not
-    // the case with the $\mathbf{u}$ dof.  In other words,
-    // $\mathsf{\mathbf{k}}_{\widetilde{J} \widetilde{p}}$,
-    // $\mathsf{\mathbf{k}}_{\widetilde{p} \widetilde{p}}$ and
-    // $\mathsf{\mathbf{k}}_{\widetilde{J} \widetilde{p}}$, when extracted
-    // from the global stiffness matrix are the element contributions.  This
-    // is not the case for $\mathsf{\mathbf{k}}_{uu}$.
-    //
-    // Note: A lower-case symbol is used to denote element stiffness matrices.
-
-    // Currently the matrix corresponding to
-    // the dof associated with the current element
-    // (denoted somewhat loosely as $\mathsf{\mathbf{k}}$)
-    // is of the form:
-    // @f{align*}
-    //    \begin{bmatrix}
-    //       \mathsf{\mathbf{k}}_{uu}  &  \mathsf{\mathbf{k}}_{u\widetilde{p}}
-    //       & \mathbf{0}
-    //    \\ \mathsf{\mathbf{k}}_{\widetilde{p}u} & \mathbf{0}  &
-    //    \mathsf{\mathbf{k}}_{\widetilde{p}\widetilde{J}}
-    //    \\ \mathbf{0}  &  \mathsf{\mathbf{k}}_{\widetilde{J}\widetilde{p}}  &
-    //    \mathsf{\mathbf{k}}_{\widetilde{J}\widetilde{J}} \end{bmatrix}
-    // @f}
-    //
-    // We now need to modify it such that it appear as
-    // @f{align*}
-    //    \begin{bmatrix}
-    //       \mathsf{\mathbf{k}}_{\textrm{con}}   &
-    //       \mathsf{\mathbf{k}}_{u\widetilde{p}}    & \mathbf{0}
-    //    \\ \mathsf{\mathbf{k}}_{\widetilde{p}u} & \mathbf{0} &
-    //    \mathsf{\mathbf{k}}_{\widetilde{p}\widetilde{J}}^{-1}
-    //    \\ \mathbf{0} & \mathsf{\mathbf{k}}_{\widetilde{J}\widetilde{p}} &
-    //    \mathsf{\mathbf{k}}_{\widetilde{J}\widetilde{J}} \end{bmatrix}
-    // @f}
-    // with $\mathsf{\mathbf{k}}_{\textrm{con}} = \bigl[
-    // \mathsf{\mathbf{k}}_{uu} +\overline{\overline{\mathsf{\mathbf{k}}}}~
-    // \bigr]$ where $               \overline{\overline{\mathsf{\mathbf{k}}}}
-    // \dealcoloneq \mathsf{\mathbf{k}}_{u\widetilde{p}}
-    // \overline{\mathsf{\mathbf{k}}} \mathsf{\mathbf{k}}_{\widetilde{p}u}
-    // $
-    // and
-    // $
-    //    \overline{\mathsf{\mathbf{k}}} =
-    //     \mathsf{\mathbf{k}}_{\widetilde{J}\widetilde{p}}^{-1}
-    //     \mathsf{\mathbf{k}}_{\widetilde{J}\widetilde{J}}
-    //    \mathsf{\mathbf{k}}_{\widetilde{p}\widetilde{J}}^{-1}
-    // $.
-    //
-    // At this point, we need to take note of
-    // the fact that global data already exists
-    // in the $\mathsf{\mathbf{K}}_{uu}$,
-    // $\mathsf{\mathbf{K}}_{\widetilde{p} \widetilde{J}}$
-    // and
-    //  $\mathsf{\mathbf{K}}_{\widetilde{J} \widetilde{p}}$
-    // sub-blocks.  So if we are to modify them, we must account for the data
-    // that is already there (i.e. simply add to it or remove it if
-    // necessary).  Since the copy_local_to_global operation is a "+="
-    // operation, we need to take this into account
-    //
-    // For the $\mathsf{\mathbf{K}}_{uu}$ block in particular, this means that
-    // contributions have been added from the surrounding cells, so we need to
-    // be careful when we manipulate this block.  We can't just erase the
-    // sub-blocks.
-    //
-    // This is the strategy we will employ to get the sub-blocks we want:
-    //
-    // - $ {\mathsf{\mathbf{k}}}_{\textrm{store}}$:
-    // Since we don't have access to $\mathsf{\mathbf{k}}_{uu}$,
-    // but we know its contribution is added to
-    // the global $\mathsf{\mathbf{K}}_{uu}$ matrix, we just want
-    // to add the element wise
-    // static-condensation $\overline{\overline{\mathsf{\mathbf{k}}}}$.
-    //
-    // - $\mathsf{\mathbf{k}}^{-1}_{\widetilde{p} \widetilde{J}}$:
-    //                      Similarly, $\mathsf{\mathbf{k}}_{\widetilde{p}
-    //                      \widetilde{J}}$ exists in
-    //          the subblock. Since the copy
-    //          operation is a += operation, we
-    //          need to subtract the existing
-    //          $\mathsf{\mathbf{k}}_{\widetilde{p} \widetilde{J}}$
-    //                      submatrix in addition to
-    //          "adding" that which we wish to
-    //          replace it with.
-    //
-    // - $\mathsf{\mathbf{k}}^{-1}_{\widetilde{J} \widetilde{p}}$:
-    //              Since the global matrix
-    //          is symmetric, this block is the
-    //          same as the one above and we
-    //          can simply use
-    //              $\mathsf{\mathbf{k}}^{-1}_{\widetilde{p} \widetilde{J}}$
-    //          as a substitute for this one.
-    //
-    // We first extract element data from the
-    // system matrix. So first we get the
-    // entire subblock for the cell, then
-    // extract $\mathsf{\mathbf{k}}$
-    // for the dofs associated with
-    // the current element
     data.k_orig.extract_submatrix_from(tangent_matrix,
                                        data.local_dof_indices,
                                        data.local_dof_indices);
-    // and next the local matrices for
-    // $\mathsf{\mathbf{k}}_{ \widetilde{p} u}$
-    // $\mathsf{\mathbf{k}}_{ \widetilde{p} \widetilde{J}}$
-    // and
-    // $\mathsf{\mathbf{k}}_{ \widetilde{J} \widetilde{J}}$:
     data.k_pu.extract_submatrix_from(data.k_orig,
                                      element_indices_p,
                                      element_indices_u);
@@ -3761,49 +3667,14 @@ namespace Flexodeal
                                      element_indices_J,
                                      element_indices_J);
 
-    // To get the inverse of $\mathsf{\mathbf{k}}_{\widetilde{p}
-    // \widetilde{J}}$, we invert it directly.  This operation is relatively
-    // inexpensive since $\mathsf{\mathbf{k}}_{\widetilde{p} \widetilde{J}}$
-    // since block-diagonal.
     data.k_pJ_inv.invert(data.k_pJ);
 
     // Now we can make condensation terms to
     // add to the $\mathsf{\mathbf{k}}_{uu}$
-    // block and put them in
-    // the cell local matrix
-    //    $
-    //    \mathsf{\mathbf{A}}
-    //    =
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{p} \widetilde{J}}
-    //    \mathsf{\mathbf{k}}_{\widetilde{p} u}
-    //    $:
+    // block and put them in the cell local matrix.
     data.k_pJ_inv.mmult(data.A, data.k_pu);
-    //      $
-    //      \mathsf{\mathbf{B}}
-    //      =
-    //      \mathsf{\mathbf{k}}^{-1}_{\widetilde{J} \widetilde{J}}
-    //      \mathsf{\mathbf{k}}^{-1}_{\widetilde{p} \widetilde{J}}
-    //      \mathsf{\mathbf{k}}_{\widetilde{p} u}
-    //      $
     data.k_JJ.mmult(data.B, data.A);
-    //    $
-    //    \mathsf{\mathbf{C}}
-    //    =
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{J} \widetilde{p}}
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{J} \widetilde{J}}
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{p} \widetilde{J}}
-    //    \mathsf{\mathbf{k}}_{\widetilde{p} u}
-    //    $
     data.k_pJ_inv.Tmmult(data.C, data.B);
-    //    $
-    //    \overline{\overline{\mathsf{\mathbf{k}}}}
-    //    =
-    //    \mathsf{\mathbf{k}}_{u \widetilde{p}}
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{J} \widetilde{p}}
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{J} \widetilde{J}}
-    //    \mathsf{\mathbf{k}}^{-1}_{\widetilde{p} \widetilde{J}}
-    //    \mathsf{\mathbf{k}}_{\widetilde{p} u}
-    //    $
     data.k_pu.Tmmult(data.k_bbar, data.C);
     data.k_bbar.scatter_matrix_to(element_indices_u,
                                   element_indices_u,
@@ -3828,7 +3699,8 @@ namespace Flexodeal
   // condensation on an element level, which requires some alterations
   // to the tangent matrix and RHS vector. Alternatively, the full block
   // system can be solved by performing condensation on a global level.
-  // Below we implement both approaches.
+  // Below we implement both approaches. Again, this section is very similar
+  // to that in step-44, so we omit details on its implementation.
   template <int dim>
   std::pair<unsigned int, double>
   Solid<dim>::solve_linear_system(BlockVector<double> &newton_update)
@@ -3838,74 +3710,6 @@ namespace Flexodeal
 
     if (parameters.use_static_condensation == true)
       {
-        // Firstly, here is the approach using the (permanent) augmentation of
-        // the tangent matrix. For the following, recall that
-        // @f{align*}
-        //  \mathsf{\mathbf{K}}_{\textrm{store}}
-        //\dealcoloneq
-        //  \begin{bmatrix}
-        //      \mathsf{\mathbf{K}}_{\textrm{con}}      &
-        //      \mathsf{\mathbf{K}}_{u\widetilde{p}}    & \mathbf{0}
-        //  \\  \mathsf{\mathbf{K}}_{\widetilde{p}u}    &       \mathbf{0} &
-        //  \mathsf{\mathbf{K}}_{\widetilde{p}\widetilde{J}}^{-1}
-        //  \\  \mathbf{0}      &
-        //  \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{p}}                &
-        //  \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}} \end{bmatrix} \, .
-        // @f}
-        // and
-        //  @f{align*}
-        //              d \widetilde{\mathsf{\mathbf{p}}}
-        //              & =
-        //              \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{p}}^{-1}
-        //              \bigl[
-        //                       \mathsf{\mathbf{F}}_{\widetilde{J}}
-        //                       -
-        //                       \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}}
-        //                       d \widetilde{\mathsf{\mathbf{J}}} \bigr]
-        //              \\ d \widetilde{\mathsf{\mathbf{J}}}
-        //              & =
-        //              \mathsf{\mathbf{K}}_{\widetilde{p}\widetilde{J}}^{-1}
-        //              \bigl[
-        //                      \mathsf{\mathbf{F}}_{\widetilde{p}}
-        //                      - \mathsf{\mathbf{K}}_{\widetilde{p}u} d
-        //                      \mathsf{\mathbf{u}} \bigr]
-        //               \\ \Rightarrow d \widetilde{\mathsf{\mathbf{p}}}
-        //              &= \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{p}}^{-1}
-        //              \mathsf{\mathbf{F}}_{\widetilde{J}}
-        //              -
-        //              \underbrace{\bigl[\mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{p}}^{-1}
-        //              \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}}
-        //              \mathsf{\mathbf{K}}_{\widetilde{p}\widetilde{J}}^{-1}\bigr]}_{\overline{\mathsf{\mathbf{K}}}}\bigl[
-        //              \mathsf{\mathbf{F}}_{\widetilde{p}}
-        //              - \mathsf{\mathbf{K}}_{\widetilde{p}u} d
-        //              \mathsf{\mathbf{u}} \bigr]
-        //  @f}
-        //  and thus
-        //  @f[
-        //              \underbrace{\bigl[ \mathsf{\mathbf{K}}_{uu} +
-        //              \overline{\overline{\mathsf{\mathbf{K}}}}~ \bigr]
-        //              }_{\mathsf{\mathbf{K}}_{\textrm{con}}} d
-        //              \mathsf{\mathbf{u}}
-        //              =
-        //          \underbrace{
-        //              \Bigl[
-        //              \mathsf{\mathbf{F}}_{u}
-        //                      - \mathsf{\mathbf{K}}_{u\widetilde{p}} \bigl[
-        //                      \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{p}}^{-1}
-        //                      \mathsf{\mathbf{F}}_{\widetilde{J}}
-        //                      -
-        //                      \overline{\mathsf{\mathbf{K}}}\mathsf{\mathbf{F}}_{\widetilde{p}}
-        //                      \bigr]
-        //              \Bigr]}_{\mathsf{\mathbf{F}}_{\textrm{con}}}
-        //  @f]
-        //  where
-        //  @f[
-        //              \overline{\overline{\mathsf{\mathbf{K}}}} \dealcoloneq
-        //                      \mathsf{\mathbf{K}}_{u\widetilde{p}}
-        //                      \overline{\mathsf{\mathbf{K}}}
-        //                      \mathsf{\mathbf{K}}_{\widetilde{p}u} \, .
-        //  @f]
-
         // At the top, we allocate two temporary vectors to help with the
         // static condensation, and variables to store the number of
         // linear solver iterations and the (hopefully converged) residual.
@@ -3926,78 +3730,21 @@ namespace Flexodeal
         {
           assemble_sc();
 
-          //              $
-          //      \mathsf{\mathbf{A}}_{\widetilde{J}}
-          //      =
-          //              \mathsf{\mathbf{K}}^{-1}_{\widetilde{p} \widetilde{J}}
-          //              \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //              $
           tangent_matrix.block(p_dof, J_dof)
             .vmult(A.block(J_dof), system_rhs.block(p_dof));
-          //      $
-          //      \mathsf{\mathbf{B}}_{\widetilde{J}}
-          //      =
-          //      \mathsf{\mathbf{K}}_{\widetilde{J} \widetilde{J}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{p} \widetilde{J}}
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      $
+          
           tangent_matrix.block(J_dof, J_dof)
             .vmult(B.block(J_dof), A.block(J_dof));
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{J}}
-          //      =
-          //      \mathsf{\mathbf{F}}_{\widetilde{J}}
-          //      -
-          //      \mathsf{\mathbf{K}}_{\widetilde{J} \widetilde{J}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{p} \widetilde{J}}
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      $
+          
           A.block(J_dof) = system_rhs.block(J_dof);
           A.block(J_dof) -= B.block(J_dof);
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{J}}
-          //      =
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{J} \widetilde{p}}
-          //      [
-          //      \mathsf{\mathbf{F}}_{\widetilde{J}}
-          //      -
-          //      \mathsf{\mathbf{K}}_{\widetilde{J} \widetilde{J}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{p} \widetilde{J}}
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      ]
-          //      $
+          
           tangent_matrix.block(p_dof, J_dof)
             .Tvmult(A.block(p_dof), A.block(J_dof));
-          //      $
-          //      \mathsf{\mathbf{A}}_{u}
-          //      =
-          //      \mathsf{\mathbf{K}}_{u \widetilde{p}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{J} \widetilde{p}}
-          //      [
-          //      \mathsf{\mathbf{F}}_{\widetilde{J}}
-          //      -
-          //      \mathsf{\mathbf{K}}_{\widetilde{J} \widetilde{J}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{p} \widetilde{J}}
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      ]
-          //      $
+          
           tangent_matrix.block(u_dof, p_dof)
             .vmult(A.block(u_dof), A.block(p_dof));
-          //      $
-          //      \mathsf{\mathbf{F}}_{\text{con}}
-          //      =
-          //      \mathsf{\mathbf{F}}_{u}
-          //      -
-          //      \mathsf{\mathbf{K}}_{u \widetilde{p}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{J} \widetilde{p}}
-          //      [
-          //      \mathsf{\mathbf{F}}_{\widetilde{J}}
-          //      -
-          //      \mathsf{\mathbf{K}}_{\widetilde{J} \widetilde{J}}
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{p} \widetilde{J}}
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      ]
-          //      $
+          
           system_rhs.block(u_dof) -= A.block(u_dof);
 
           timer.enter_subsection("Linear solver");
@@ -4015,7 +3762,7 @@ namespace Flexodeal
               GrowingVectorMemory<Vector<double>> GVM;
               SolverCG<Vector<double>> solver_CG(solver_control, GVM);
 
-              // We've chosen by default a SSOR preconditioner as it appears to
+              // We've chosen by default a Jacobi preconditioner as it appears to
               // provide the fastest solver convergence characteristics for this
               // problem on a single-thread machine.  However, this might not be
               // true for different problem sizes.
@@ -4062,7 +3809,7 @@ namespace Flexodeal
             {
               // Otherwise if the problem is small
               // enough, a direct solver can be
-              // utilised.
+              // used.
               SparseDirectUMFPACK A_direct;
               A_direct.initialize(tangent_matrix.block(u_dof, u_dof));
               A_direct.vmult(newton_update.block(u_dof),
@@ -4096,35 +3843,13 @@ namespace Flexodeal
         //      \bigr]
         //    $
         {
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{p}}
-          //      =
-          //      \mathsf{\mathbf{K}}_{\widetilde{p}u} d \mathsf{\mathbf{u}}
-          //      $
           tangent_matrix.block(p_dof, u_dof)
             .vmult(A.block(p_dof), newton_update.block(u_dof));
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{p}}
-          //      =
-          //      -\mathsf{\mathbf{K}}_{\widetilde{p}u} d \mathsf{\mathbf{u}}
-          //      $
+          
           A.block(p_dof) *= -1.0;
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{p}}
-          //      =
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      -\mathsf{\mathbf{K}}_{\widetilde{p}u} d \mathsf{\mathbf{u}}
-          //      $
+          
           A.block(p_dof) += system_rhs.block(p_dof);
-          //      $
-          //      d\mathsf{\mathbf{\widetilde{J}}}
-          //      =
-          //      \mathsf{\mathbf{K}}^{-1}_{\widetilde{p}\widetilde{J}}
-          //      [
-          //      \mathsf{\mathbf{F}}_{\widetilde{p}}
-          //      -\mathsf{\mathbf{K}}_{\widetilde{p}u} d \mathsf{\mathbf{u}}
-          //      ]
-          //      $
+          
           tangent_matrix.block(p_dof, J_dof)
             .vmult(newton_update.block(J_dof), A.block(p_dof));
         }
@@ -4146,41 +3871,13 @@ namespace Flexodeal
         //    \bigr]
         //    $
         {
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{J}}
-          //       =
-          //      \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}}
-          //      d \widetilde{\mathsf{\mathbf{J}}}
-          //      $
           tangent_matrix.block(J_dof, J_dof)
             .vmult(A.block(J_dof), newton_update.block(J_dof));
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{J}}
-          //       =
-          //      -\mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}}
-          //      d \widetilde{\mathsf{\mathbf{J}}}
-          //      $
+          
           A.block(J_dof) *= -1.0;
-          //      $
-          //      \mathsf{\mathbf{A}}_{\widetilde{J}}
-          //       =
-          //      \mathsf{\mathbf{F}}_{\widetilde{J}}
-          //      -
-          //      \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}}
-          //      d \widetilde{\mathsf{\mathbf{J}}}
-          //      $
+          
           A.block(J_dof) += system_rhs.block(J_dof);
-          // and finally....
-          //    $
-          //    d \widetilde{\mathsf{\mathbf{p}}}
-          //     =
-          //    \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{p}}^{-1}
-          //    \bigl[
-          //     \mathsf{\mathbf{F}}_{\widetilde{J}}
-          //      - \mathsf{\mathbf{K}}_{\widetilde{J}\widetilde{J}}
-          //    d \widetilde{\mathsf{\mathbf{J}}}
-          //    \bigr]
-          //    $
+          
           tangent_matrix.block(p_dof, J_dof)
             .Tvmult(newton_update.block(p_dof), A.block(J_dof));
         }
@@ -4201,21 +3898,6 @@ namespace Flexodeal
 
         if (parameters.type_lin == "CG")
           {
-            // Manual condensation of the dilatation and pressure fields on
-            // a local level, and subsequent post-processing, took quite a
-            // bit of effort to achieve. To recap, we had to produce the
-            // inverse matrix
-            // $\mathsf{\mathbf{K}}_{\widetilde{p}\widetilde{J}}^{-1}$, which
-            // was permanently written into the global tangent matrix. We then
-            // permanently modified $\mathsf{\mathbf{K}}_{uu}$ to produce
-            // $\mathsf{\mathbf{K}}_{\textrm{con}}$. This involved the
-            // extraction and manipulation of local sub-blocks of the tangent
-            // matrix. After solving for the displacement, the individual
-            // matrix-vector operations required to solve for dilatation and
-            // pressure were carefully implemented. Contrast these many sequence
-            // of steps to the much simpler and transparent implementation using
-            // functionality provided by the LinearOperator class.
-
             // For ease of later use, we define some aliases for
             // blocks in the RHS vector
             const Vector<double> &f_u = system_rhs.block(u_dof);
@@ -4584,6 +4266,9 @@ namespace Flexodeal
   }
   
   // @sect4{Solid::output_energies}
+
+  // Here, we retrieve information contained in the quadrature points to compute the
+  // different energies in the system.
   template <int dim>
   void Solid<dim>::output_energies() const
   {
@@ -4643,7 +4328,7 @@ namespace Flexodeal
               << "Muscleactive energy:" << "\t" << energy_muscle_base / current_volume << "\n"
               << std::endl;
 
-    // Output time series
+    // Output time series as a CSV file.
     std::ostringstream filename;
     filename << save_dir << "/energy_data-" << dim << "d.csv";
     std::ofstream output;
@@ -4678,6 +4363,9 @@ namespace Flexodeal
   }
 
   // @sect4{Solid::output_forces}
+
+  // Similar to the computation of energies, we retrieve information to compute
+  // the different forces in the system.
   template <int dim>
   void Solid<dim>::output_forces() const
   {
@@ -4733,7 +4421,7 @@ namespace Flexodeal
 
     const double current_volume = compute_vol_current();
 
-    // Pretty display
+    // First, output to the terminal the norm of the force on each face.
     static const unsigned int l_width = 17 + 12 * list_of_boundary_ids.size();    
     
     std::cout << "Force on ID# [N] ";
@@ -4782,7 +4470,10 @@ namespace Flexodeal
     
     std::cout << std::endl;
 
-    // Output to file
+    // Then, output the force in vector form on each face for all 
+    // contributions (active, passive, base material, etc.). This 
+    // creates a separate force_data-3d-XXX.csv file at each time 
+    // step.
     {
       std::ostringstream filename;
       filename << save_dir << "/force_data-" << dim << "d-" 
@@ -4807,10 +4498,11 @@ namespace Flexodeal
               << force_muscle_base[x][0] << "," << force_muscle_base[x][1] << "," << force_muscle_base[x][2] << "\n";
     }
 
-    // Output time series. For this, we are only interested in the force
-    // on the x-component of the Force exerted on the +x face along the
-    // line of action, which we compute by projecting the force vector
-    // onto the unit vector given by the initial fibre orientation.
+    // Finally, output a time series. For this, we are only interested 
+    // in the force on the x-component of the force exerted on the +x 
+    // face along the line of action. We compute this by projecting the 
+    // force vector onto the unit vector given by the initial fibre 
+    // orientation.
     {
       std::ostringstream filename;
       filename << save_dir << "/force_data-" << dim << "d.csv";
@@ -4846,6 +4538,8 @@ namespace Flexodeal
   }
 
   // @sect4{Solid::output_mean_stretch_and_pennation}
+
+  // Then, we output mean values of stretch and pennation.
   template <int dim>
   void Solid<dim>::output_mean_stretch_and_pennation() const
   {
@@ -4911,6 +4605,10 @@ namespace Flexodeal
   }
 
   // @sect4{Output stresses}
+
+  // Next, we output some stresses to be viewed in Paraview. Again, we use 
+  // a "vector of vectors" approach to export each one of the 9 components 
+  // of the stress tensor.
   template <int dim>
   void Solid<dim>::output_stresses() const
   {
@@ -4983,12 +4681,15 @@ namespace Flexodeal
     data_out.write_vtu(output);
   }
 
-  // @sect4{Output gearing information (mean muscle and fibre velocity)}
+  // @sect4{Output gearing information}
+
+  // Then, we output some information needed to compute gearing (the ratio of muscle 
+  // velocity over fibre velocity).
   template <int dim>
   void Solid<dim>::output_gearing_info() const
   {
-    // This function only makes sense for dynamic computations. If that is not the
-    // case, we just skip this function.
+    // This function only makes sense for dynamic computations (no velocity is computed 
+    // in quasi-static simulations). If that is not the case, we just skip this function.
     if (parameters.type_of_simulation != "dynamic")
       return void();
     
@@ -5080,6 +4781,9 @@ namespace Flexodeal
            << "," << volume_slab << "\n";
   }
 
+  // @sect4{Output activation and muscle length}
+
+  // Then, we output the interpolated values of activation and muscle length.
   template <int dim>
   void Solid<dim>::output_activation_muscle_length()
   {
@@ -5103,6 +4807,13 @@ namespace Flexodeal
            << "," << parameters.length * (u_dir(time.current()) + 1.0) << "\n";
   }
 
+  // @sect4{Output displacements at select locations}
+
+  // Finally, we output the three components of the displacement at three
+  // particular points inside the domain. Note that, despite the name of
+  // the variables (u_left, u_mid, and u_right), these points can be located
+  // anywhere in the geometry. The only requirement is that they MUST be
+  // vertices of the current mesh. 
   template <int dim>
   void Solid<dim>::ouput_displacements_at_select_locations() const
   {
@@ -5151,12 +4862,13 @@ namespace Flexodeal
            << "," << parameters.length << "\n";
   }
   
-} // namespace Flexodeal
+} // End of namespace Flexodeal
 
 
 // @sect3{Main function}
-// Lastly we provide the main driver function which appears
-// no different to the other tutorials.
+// Lastly we provide the main driver function. Here, we have the option
+// of using different parameter, strain, and activation files without the
+// need to recompile the code.
 int main(int argc, char* argv[])
 {
   using namespace Flexodeal;
@@ -5176,6 +4888,13 @@ int main(int argc, char* argv[])
         parameters_file = "parameters.prm";
         strain_file     = "control_points_strain.dat";
         activation_file = "control_points_activation.dat";
+        
+        // Caution must be taken when using files that are different from
+        // these default values. Whatever name you use for these files,
+        // the order must be preserved. 
+        //
+        // Remember: public service announcement, PSA (parameters, strain, 
+        // activation)! Credits to Kshitij Patil for the acronym :)
       } 
       else
       {
