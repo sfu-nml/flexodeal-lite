@@ -851,6 +851,7 @@ namespace Flexodeal
       J_tilde(1.0),
       b_bar(Physics::Elasticity::StandardTensors<dim>::I),
       trace_b_bar(3.0),
+      trace_d(0.0),
       delta_t(0.0)
       {
         Assert(kappa_muscle > 0, 
@@ -886,9 +887,9 @@ namespace Flexodeal
       trace_b_bar                = first_invariant(b_bar);
       
       // Update stretch_bar and strain_rate_bar using the current Newton iterate.
-      const Tensor<2,dim> dev_symm_grad_velocity =
-                        Physics::Elasticity::StandardTensors<dim>::dev_P * 
-                        Physics::Elasticity::Kinematics::d(F,grad_velocity);
+      const SymmetricTensor<2,dim> symm_grad_velocity = Physics::Elasticity::Kinematics::d(F,grad_velocity);
+      const Tensor<2,dim> dev_symm_grad_velocity      = Physics::Elasticity::StandardTensors<dim>::dev_P * symm_grad_velocity;
+      trace_d         = first_invariant(symm_grad_velocity);
       orientation     = F_bar * initial_fibre_orientation;
       stretch_bar     = std::sqrt(orientation * orientation);
       strain_rate_bar = (1.0 / strain_rate_naught) * 
@@ -991,7 +992,17 @@ namespace Flexodeal
       return std::pow(det_F, 1/3) * stretch_bar;
     }
 
+    double get_stretch_bar() const
+    {
+      return stretch_bar;
+    }
+
     double get_strain_rate() const
+    {
+      return std::pow(det_F, 1/3) * (strain_rate_bar + (1.0/dim) * (trace_d/strain_rate_naught) * stretch_bar);
+    }
+
+    double get_strain_rate_bar() const
     {
       return strain_rate_bar;
     }
@@ -1027,6 +1038,7 @@ namespace Flexodeal
     double                  J_tilde;
     SymmetricTensor<2, dim> b_bar;
     double                  trace_b_bar;
+    double                  trace_d;
     double                  delta_t;
 
     // The following functions are used internally in determining the result
@@ -1429,9 +1441,19 @@ namespace Flexodeal
       return material->get_stretch();
     }
 
+    double get_stretch_bar() const
+    {
+      return material->get_stretch_bar();
+    }
+
     double get_strain_rate() const
     {
       return material->get_strain_rate();
+    }
+
+    double get_strain_rate_bar() const
+    {
+      return material->get_strain_rate_bar();
     }
 
     Tensor<1, dim> get_orientation() const
