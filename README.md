@@ -8,7 +8,7 @@ Check out this [cool video](https://youtu.be/CCTiSV1Vl7o) of a fully dynamic, fu
 ## How to use it?
 
 - Make sure you have properly set up deal.II v9.3 (or newer) and its dependencies. For more information, visit [their website](http://www.dealii.org).
-- Clone the repository using your SSH keys: ```git clone git@github.com:javieralmonacid/flexodeal.git```. Download the repository as a .zip if you do not want to track your changes or you do not have a GitHub account.
+- Clone the repository using your SSH keys: ```git clone git@github.com:sfu-nml/flexodeal.git```. Download the repository as a .zip if you do not want to track your changes or you do not have a GitHub account.
 - Navigate to the Flexodeal folder using ```cd```.
 - Call CMake:
     - In release mode: ```cmake . -DCMAKE_BUILD_TYPE=Release -DDEAL_II_DIR=<path/to/deal.II>```.
