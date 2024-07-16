@@ -68,11 +68,11 @@ subsection Materials
 
   set Max strain rate = 5.0
 
-  set Muscle x component = 1.0
+  set Muscle x component = 0.86602540
 
   set Muscle y component = 0.0
 
-  set Muscle z component = 0.0
+  set Muscle z component = 0.5
   
   # Base material properties
   set Sigma naught base material = 2.0e5
@@ -105,7 +105,7 @@ end
 subsection Time
   # End time (add one time step, the last .vtu will 
   # correspond to time "End time - Time step size")
-  set End time       = 1.00000001
+  set End time       = 0.20000001
 
   # Time step size
   set Time step size = 0.00078125

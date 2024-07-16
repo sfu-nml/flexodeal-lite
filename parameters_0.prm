@@ -8,7 +8,7 @@ subsection Finite element system
   set Quadrature order  = 5
 
   # Type of simulation (dynamic or quasi-static)
-  set Type of simulation = dynamic
+  set Type of simulation = quasi-static
 end
 
 
@@ -108,7 +108,7 @@ subsection Time
   set End time       = 0.20000001
 
   # Time step size
-  set Time step size = 0.003125
+  set Time step size = 0.0125
 end
 
 
