@@ -18,6 +18,7 @@ commit_text.md
 results/
 2024*/
 *.zip
+petsc-dynamic-muscle
 
 # Latex
 *.aux
