@@ -1670,8 +1670,11 @@ namespace Flexodeal
     // We declare such structures for the computation of tangent (stiffness)
     // matrix and right hand side vector, and for updating
     // quadrature points:
-    struct PerTaskData_ASM;
-    struct ScratchData_ASM;
+    struct PerTaskData_K;
+    struct ScratchData_K;
+
+    struct PerTaskData_RHS;
+    struct ScratchData_RHS;
 
     struct PerTaskData_UQPH;
     struct ScratchData_UQPH;
@@ -1700,12 +1703,23 @@ namespace Flexodeal
     // that is executed to do the work in the WorkStream model on one cell,
     // and one that copies the work done on this one cell into the global
     // object that represents it:
-    void assemble_system();
+    void assemble_system_tangent();
 
-    void assemble_system_one_cell(
+    void assemble_system_tangent_one_cell(
       const typename DoFHandler<dim>::active_cell_iterator &cell,
-      ScratchData_ASM &                                     scratch,
-      PerTaskData_ASM &                                     data) const;
+      ScratchData_K &scratch,
+      PerTaskData_K &data) const;
+
+    void copy_local_to_global_K(const PerTaskData_K &data);
+
+    void assemble_system_rhs();
+
+    void assemble_system_rhs_one_cell(
+      const typename DoFHandler<dim>::active_cell_iterator &cell,
+      ScratchData_RHS &scratch,
+      PerTaskData_RHS &data) const;
+
+    void copy_local_to_global_rhs(const PerTaskData_RHS &data);
 
     // Create and update the quadrature points. Here, no data needs to be
     // copied into a global object, so the copy_local_to_global function is
@@ -2092,33 +2106,102 @@ namespace Flexodeal
   // Firstly we deal with the tangent matrix and right-hand side assembly
   // structures. The PerTaskData object stores local contributions to the global
   // system.
+  
+  // PerTaskData_ASM, ScratchData_ASM deleted
+
   template <int dim>
-  struct Solid<dim>::PerTaskData_ASM
+  struct Solid<dim>::PerTaskData_K
   {
     FullMatrix<double>                   cell_matrix;
-    Vector<double>                       cell_rhs;
     std::vector<types::global_dof_index> local_dof_indices;
 
-    PerTaskData_ASM(const unsigned int dofs_per_cell)
+    PerTaskData_K(const unsigned int dofs_per_cell)
       : cell_matrix(dofs_per_cell, dofs_per_cell)
-      , cell_rhs(dofs_per_cell)
       , local_dof_indices(dofs_per_cell)
     {}
 
     void reset()
     {
       cell_matrix = 0.0;
+    }
+  };
+
+  template <int dim>
+  struct Solid<dim>::ScratchData_K
+  {
+    FEValues<dim>     fe_values;
+
+    std::vector<std::vector<double>>                  Nx;
+    std::vector<std::vector<Tensor<1, dim>>>          vector_Nx;
+    std::vector<std::vector<Tensor<2, dim>>>          grad_Nx;
+    std::vector<std::vector<SymmetricTensor<2, dim>>> symm_grad_Nx;
+
+    ScratchData_K(const FiniteElement<dim> &fe_cell,
+                  const QGauss<dim> &       qf_cell,
+                  const UpdateFlags         uf_cell)
+      : fe_values(fe_cell, qf_cell, uf_cell)
+      , Nx(qf_cell.size(), std::vector<double>(fe_cell.n_dofs_per_cell()))
+      , vector_Nx(qf_cell.size(), 
+                std::vector<Tensor<1,dim>>(fe_cell.n_dofs_per_cell()))
+      , grad_Nx(qf_cell.size(),
+                std::vector<Tensor<2, dim>>(fe_cell.n_dofs_per_cell()))
+      , symm_grad_Nx(qf_cell.size(),
+                     std::vector<SymmetricTensor<2, dim>>(
+                       fe_cell.n_dofs_per_cell()))
+    {}
+
+    ScratchData_K(const ScratchData_K &rhs)
+      : fe_values(rhs.fe_values.get_fe(),
+                  rhs.fe_values.get_quadrature(),
+                  rhs.fe_values.get_update_flags())
+      , Nx(rhs.Nx)
+      , vector_Nx(rhs.vector_Nx)
+      , grad_Nx(rhs.grad_Nx)
+      , symm_grad_Nx(rhs.symm_grad_Nx)
+    {}
+
+    void reset()
+    {
+      const unsigned int n_q_points      = Nx.size();
+      const unsigned int n_dofs_per_cell = Nx[0].size();
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          Assert(Nx[q_point].size() == n_dofs_per_cell, ExcInternalError());
+          Assert(vector_Nx[q_point].size() == n_dofs_per_cell, ExcInternalError());
+          Assert(grad_Nx[q_point].size() == n_dofs_per_cell,
+                 ExcInternalError());
+          Assert(symm_grad_Nx[q_point].size() == n_dofs_per_cell,
+                 ExcInternalError());
+          for (unsigned int k = 0; k < n_dofs_per_cell; ++k)
+            {
+              Nx[q_point][k]           = 0.0;
+              vector_Nx[q_point][k]    = 0.0;
+              grad_Nx[q_point][k]      = 0.0;
+              symm_grad_Nx[q_point][k] = 0.0;
+            }
+        }
+    }
+  };
+
+  template <int dim>
+  struct Solid<dim>::PerTaskData_RHS
+  {
+    Vector<double>                       cell_rhs;
+    std::vector<types::global_dof_index> local_dof_indices;
+
+    PerTaskData_RHS(const unsigned int dofs_per_cell)
+      : cell_rhs(dofs_per_cell)
+      , local_dof_indices(dofs_per_cell)
+    {}
+
+    void reset()
+    {
       cell_rhs    = 0.0;
     }
   };
 
-
-  // On the other hand, the ScratchData object stores the larger objects such as
-  // the shape-function values array (<code>Nx</code>) and a shape function
-  // gradient and symmetric gradient vector which we will use during the
-  // assembly.
   template <int dim>
-  struct Solid<dim>::ScratchData_ASM
+  struct Solid<dim>::ScratchData_RHS
   {
     FEValues<dim>     fe_values;
     FEFaceValues<dim> fe_face_values;
@@ -2128,7 +2211,7 @@ namespace Flexodeal
     std::vector<std::vector<Tensor<2, dim>>>          grad_Nx;
     std::vector<std::vector<SymmetricTensor<2, dim>>> symm_grad_Nx;
 
-    ScratchData_ASM(const FiniteElement<dim> &fe_cell,
+    ScratchData_RHS(const FiniteElement<dim> &fe_cell,
                     const QGauss<dim> &       qf_cell,
                     const UpdateFlags         uf_cell,
                     const QGauss<dim - 1> &   qf_face,
@@ -2145,7 +2228,7 @@ namespace Flexodeal
                        fe_cell.n_dofs_per_cell()))
     {}
 
-    ScratchData_ASM(const ScratchData_ASM &rhs)
+    ScratchData_RHS(const ScratchData_RHS &rhs)
       : fe_values(rhs.fe_values.get_fe(),
                   rhs.fe_values.get_quadrature(),
                   rhs.fe_values.get_update_flags())
@@ -2743,12 +2826,6 @@ namespace Flexodeal
 
     BlockVector<double> newton_update(dofs_per_block);
 
-    // Additional variables required for accelerated Newton method
-    BlockVector<double> newton_update_previous(dofs_per_block);
-    BlockVector<double> solution_k_previous(solution_n); 
-    BlockVector<double> solution_k(dofs_per_block); 
-    
-
     error_residual.reset();
     error_residual_0.reset();
     error_residual_norm.reset();
@@ -2783,15 +2860,14 @@ namespace Flexodeal
       {
         std::cout << " " << std::setw(2) << newton_iteration << " "
                   << std::flush;
-
-        // We construct the linear system, but hold off on solving it
-        // (a step that should be significantly more expensive than assembly):
-        make_constraints(newton_iteration);
-        assemble_system();
+        
+        // We first assemble the RHS only.
+        assemble_system_rhs();
 
         // We can now determine the normalized residual error and check for
         // solution convergence:
         get_error_residual(error_residual);
+
         if (newton_iteration == 0)
           error_residual_0 = error_residual;
 
@@ -2809,6 +2885,10 @@ namespace Flexodeal
 
         // If we have decided that we want to continue with the iteration, we
         // solve the linearized system:
+        assemble_system_tangent();
+        make_constraints(newton_iteration);
+        constraints.condense(tangent_matrix, system_rhs);
+
         const std::pair<unsigned int, double> lin_solver_output =
           solve_linear_system(newton_update);
 
@@ -2830,36 +2910,10 @@ namespace Flexodeal
         }
         else if (parameters.type_nonlinear_solver == "acceleratedNewton")
         {
-          // Accelerated Newton-Anderson update with depth 1
-          // D. G. Anderson. Iterative Procedures for Nonlinear Integral Equations. 
-          // Journal of the Association for Computing Machinery 12 (1965), no. 4, 547–560. 
-          // https://doi.org/10.1145/321296.321305
-          // or (cleaner equations)
-          // S. Pollock and H. Schwartz. Benchmarking results for the Newton-Anderson method.
-          // Results in Applied Mathematics 8 (2020), 100095. 
-          // https://doi.org/10.1016/j.rinam.2020.100095
-          if (newton_iteration == 0)
-          {
-            // Usual Newton update for the very first iteration
-            solution_delta += newton_update;
-            solution_k = solution_n + solution_delta;
-            newton_update_previous = newton_update;
-          }
-          else
-          {
-            // Now use the different direction
-            const BlockVector<double> newton_delta = newton_update - newton_update_previous;
-            const double gamma_update = (newton_update * newton_delta)
-                                            / (newton_delta * newton_delta);
-            solution_k = (1-gamma_update) * (solution_k + newton_update) + gamma_update * (solution_k_previous + newton_update_previous);
-            solution_delta = solution_k - solution_n;
-            // Update previous variables
-            solution_k_previous = solution_k;
-            newton_update_previous = newton_update;
-          }
+          AssertThrow(false, ExcMessage("Accelerated Newton not implemented."));
         }
         else
-            Assert (false, ExcMessage("Non-linear solver type not implemented"));
+          AssertThrow(false, ExcMessage("Non-linear solver type not implemented"));
 
         update_qph_incremental(solution_delta);
 
@@ -3066,45 +3120,32 @@ namespace Flexodeal
 
   // @sect4{Solid::assemble_system}
 
-  // Since we use TBB for assembly, we simply setup a copy of the
-  // data structures required for the process and pass them, along
-  // with the assembly functions to the WorkStream object for processing. Note
-  // that we must ensure that the matrix and RHS vector are reset before any
-  // assembly operations can occur. Furthermore, since we are describing a
-  // problem with Neumann BCs, we will need the face normals and so must specify
-  // this in the face update flags.
+  // Assemble system tangent
   template <int dim>
-  void Solid<dim>::assemble_system()
+  void Solid<dim>::assemble_system_tangent()
   {
-    timer.enter_subsection("Assemble system");
-    std::cout << " ASM_SYS " << std::flush;
+    timer.enter_subsection("Assemble system tangent");
+    std::cout << " ASM_K " << std::flush;
 
     tangent_matrix = 0.0;
-    system_rhs     = 0.0;
 
     const UpdateFlags uf_cell(update_values | update_gradients |
                               update_JxW_values);
-    const UpdateFlags uf_face(update_values | update_normal_vectors |
-                              update_JxW_values);
 
-    PerTaskData_ASM per_task_data(dofs_per_cell);
-    ScratchData_ASM scratch_data(fe, qf_cell, uf_cell, qf_face, uf_face);
+    PerTaskData_K per_task_data(dofs_per_cell);
+    ScratchData_K scratch_data(fe, qf_cell, uf_cell);
 
     // The syntax used here to pass data to the WorkStream class
     // is discussed in step-13.
     WorkStream::run(
       dof_handler.active_cell_iterators(),
       [this](const typename DoFHandler<dim>::active_cell_iterator &cell,
-             ScratchData_ASM &                                     scratch,
-             PerTaskData_ASM &                                     data) {
-        this->assemble_system_one_cell(cell, scratch, data);
+             ScratchData_K &scratch,
+             PerTaskData_K &data) {
+        this->assemble_system_tangent_one_cell(cell, scratch, data);
       },
-      [this](const PerTaskData_ASM &data) {
-        this->constraints.distribute_local_to_global(data.cell_matrix,
-                                                     data.cell_rhs,
-                                                     data.local_dof_indices,
-                                                     tangent_matrix,
-                                                     system_rhs);
+      [this](const PerTaskData_K &data) {
+        this->copy_local_to_global_K(data);
       },
       scratch_data,
       per_task_data);
@@ -3112,19 +3153,11 @@ namespace Flexodeal
     timer.leave_subsection();
   }
 
-  // Of course, we still have to define how we assemble the tangent matrix
-  // contribution for a single cell.  We first need to reset and initialize some
-  // of the scratch data structures and retrieve some basic information
-  // regarding the DOF numbering on this cell.  We can precalculate the cell
-  // shape function values and gradients. Note that the shape function gradients
-  // are defined with regard to the current configuration.  That is
-  // $\textrm{grad}\ \boldsymbol{\varphi} = \textrm{Grad}\ \boldsymbol{\varphi}
-  // \ \mathbf{F}^{-1}$.
   template <int dim>
-  void Solid<dim>::assemble_system_one_cell(
+  void Solid<dim>::assemble_system_tangent_one_cell(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
-    ScratchData_ASM &                                     scratch,
-    PerTaskData_ASM &                                     data) const
+    ScratchData_K &scratch,
+    PerTaskData_K &data) const
   {
     data.reset();
     scratch.reset();
@@ -3168,7 +3201,7 @@ namespace Flexodeal
     const double material_density = parameters.muscle_density;
     const double dt               = time.get_delta_t();
 
-    // Now we build the local cell stiffness matrix and RHS vector. Since the
+    // Now we build the local cell stiffness matrix. Since the
     // global and local system matrices are symmetric, we can exploit this
     // property by building only the lower half of the local matrix and copying
     // the values to the upper half.  So we only assemble half of the
@@ -3184,21 +3217,12 @@ namespace Flexodeal
     for (const unsigned int q_point :
          scratch.fe_values.quadrature_point_indices())
       {
-        const SymmetricTensor<2, dim> tau     = lqph[q_point]->get_tau();
         const Tensor<2, dim>          tau_ns  = lqph[q_point]->get_tau();
         const SymmetricTensor<4, dim> Jc      = lqph[q_point]->get_Jc();
         const double                  det_F   = lqph[q_point]->get_det_F();
-        const double                  p_tilde = lqph[q_point]->get_p_tilde();
-        const double                  J_tilde = lqph[q_point]->get_J_tilde();
-        const double dPsi_vol_dJ   = lqph[q_point]->get_dPsi_vol_dJ();
         const double d2Psi_vol_dJ2 = lqph[q_point]->get_d2Psi_vol_dJ2();
         const SymmetricTensor<2, dim> &I =
           Physics::Elasticity::StandardTensors<dim>::I;
-
-        // Especially for the dynamic computation, we also need the following quantities:
-        const Tensor<1,dim> displacement_update   = lqph[q_point]->get_displacement();
-        const Tensor<1,dim> displacement_previous = lqph[q_point]->get_displacement_previous();
-        const Tensor<1,dim> velocity_previous     = lqph[q_point]->get_velocity_previous();
 
         // These two tensors store some precomputed data. Their use will
         // explained shortly.
@@ -3219,27 +3243,6 @@ namespace Flexodeal
             const unsigned int component_i =
               fe.system_to_component_index(i).first;
             const unsigned int i_group = fe.system_to_base_index(i).first.first;
-
-            // We first compute the contributions
-            // from the internal forces.  Note, by
-            // definition of the rhs as the negative
-            // of the residual, these contributions
-            // are subtracted.
-            if (i_group == u_dof)
-              data.cell_rhs(i) -= (symm_grad_Nx[i] * tau) * JxW;
-            else if (i_group == p_dof)
-              data.cell_rhs(i) -= N[i] * (det_F - J_tilde) * JxW;
-            else if (i_group == J_dof)
-              data.cell_rhs(i) -= N[i] * (dPsi_vol_dJ - p_tilde) * JxW;
-            else
-              Assert(i_group <= J_dof, ExcInternalError());
-
-            if (i_group == u_dof && parameters.type_of_simulation == "dynamic")
-            {
-              data.cell_rhs(i) -= material_density * std::pow(dt,-2) * displacement_update * vector_N[i] * JxW;
-              data.cell_rhs(i) += material_density * std::pow(dt,-1) * velocity_previous * vector_N[i] * JxW;
-              data.cell_rhs(i) += material_density * std::pow(dt,-2) * displacement_previous * vector_N[i] * JxW;
-            }
 
             // Before we go into the inner loop, we have one final chance to
             // introduce some optimizations. We've already taken into account
@@ -3318,63 +3321,6 @@ namespace Flexodeal
           }
       }
 
-    // Next we assemble the Neumann contribution. We first check to see it the
-    // cell face exists on a boundary on which a traction is applied and add
-    // the contribution if this is the case.
-    //
-    // ********** TRACTION BOUNDARY CONDITION TEMPORARILY DISABLED *************
-    //
-    /* 
-    for (const auto &face : cell->face_iterators())
-      if (face->at_boundary() && face->boundary_id() == 6)
-        {
-          scratch.fe_face_values.reinit(cell, face);
-
-          for (const unsigned int f_q_point :
-               scratch.fe_face_values.quadrature_point_indices())
-            {
-              const Tensor<1, dim> &N =
-                scratch.fe_face_values.normal_vector(f_q_point);
-
-              // Using the face normal at this quadrature point we specify the
-              // traction in reference configuration. For this problem, a
-              // defined pressure is applied in the reference configuration.
-              // The direction of the applied traction is assumed not to
-              // evolve with the deformation of the domain. The traction is
-              // defined using the first Piola-Kirchhoff stress is simply
-              // $\mathbf{t} = \mathbf{P}\mathbf{N} = [p_0 \mathbf{I}]
-              // \mathbf{N} = p_0 \mathbf{N}$ We use the time variable to
-              // linearly ramp up the pressure load.
-              //
-              // Note that the contributions to the right hand side vector we
-              // compute here only exist in the displacement components of the
-              // vector.
-              static const double p0 =
-                -4.0 / (parameters.scale * parameters.scale);
-              const double         time_ramp = (time.current() / time.end());
-              const double         pressure  = p0 * parameters.p_p0 * time_ramp;
-              const Tensor<1, dim> traction  = pressure * N;
-
-              for (const unsigned int i : scratch.fe_values.dof_indices())
-                {
-                  const unsigned int i_group =
-                    fe.system_to_base_index(i).first.first;
-
-                  if (i_group == u_dof)
-                    {
-                      const unsigned int component_i =
-                        fe.system_to_component_index(i).first;
-                      const double Ni =
-                        scratch.fe_face_values.shape_value(i, f_q_point);
-                      const double JxW = scratch.fe_face_values.JxW(f_q_point);
-
-                      data.cell_rhs(i) += (Ni * traction[component_i]) * JxW;
-                    }
-                }
-            }
-        }
-      */
-
     // Finally, we need to copy the lower half of the local matrix into the
     // upper half:
     for (const unsigned int i : scratch.fe_values.dof_indices())
@@ -3383,7 +3329,172 @@ namespace Flexodeal
         data.cell_matrix(i, j) = data.cell_matrix(j, i);
   }
 
+  template <int dim>
+  void Solid<dim>::copy_local_to_global_K(const PerTaskData_K &data)
+  {
+    for (unsigned int i = 0; i < dofs_per_cell; ++i)
+      for (unsigned int j = 0; j < dofs_per_cell; ++j)
+        tangent_matrix.add(data.local_dof_indices[i],
+                           data.local_dof_indices[j],
+                           data.cell_matrix(i, j));
+  }
 
+  template <int dim>
+  void Solid<dim>::assemble_system_rhs()
+  {
+    timer.enter_subsection("Assemble system RHS");
+    std::cout << " ASM_RHS " << std::flush;
+
+    system_rhs     = 0.0;
+
+    const UpdateFlags uf_cell(update_values | update_gradients |
+                              update_JxW_values);
+    const UpdateFlags uf_face(update_values | update_normal_vectors |
+                              update_JxW_values);
+
+    PerTaskData_RHS per_task_data(dofs_per_cell);
+    ScratchData_RHS scratch_data(fe, qf_cell, uf_cell, qf_face, uf_face);
+
+    // The syntax used here to pass data to the WorkStream class
+    // is discussed in step-13.
+    WorkStream::run(
+      dof_handler.active_cell_iterators(),
+      [this](const typename DoFHandler<dim>::active_cell_iterator &cell,
+             ScratchData_RHS &                                     scratch,
+             PerTaskData_RHS &                                     data) {
+        this->assemble_system_rhs_one_cell(cell, scratch, data);
+      },
+      [this](const PerTaskData_RHS &data) {
+        this->copy_local_to_global_rhs(data);
+      },
+      scratch_data,
+      per_task_data);
+
+    timer.leave_subsection();
+  }
+
+  template <int dim>
+  void Solid<dim>::assemble_system_rhs_one_cell(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchData_RHS &scratch,
+    PerTaskData_RHS &data) const
+  {
+    data.reset();
+    scratch.reset();
+    scratch.fe_values.reinit(cell);
+    cell->get_dof_indices(data.local_dof_indices);
+
+    const std::vector<std::shared_ptr<const PointHistory<dim>>> lqph =
+      quadrature_point_history.get_data(cell);
+    Assert(lqph.size() == n_q_points, ExcInternalError());
+
+    for (const unsigned int q_point :
+         scratch.fe_values.quadrature_point_indices())
+      {
+        const Tensor<2, dim> F_inv = lqph[q_point]->get_F_inv();
+        for (const unsigned int k : scratch.fe_values.dof_indices())
+          {
+            const unsigned int k_group = fe.system_to_base_index(k).first.first;
+
+            if (k_group == u_dof)
+              {
+                scratch.vector_Nx[q_point][k] = 
+                  scratch.fe_values[u_fe].value(k, q_point);
+                scratch.grad_Nx[q_point][k] =
+                  scratch.fe_values[u_fe].gradient(k, q_point) * F_inv;
+                scratch.symm_grad_Nx[q_point][k] =
+                  symmetrize(scratch.grad_Nx[q_point][k]);
+              }
+            else if (k_group == p_dof)
+              scratch.Nx[q_point][k] =
+                scratch.fe_values[p_fe].value(k, q_point);
+            else if (k_group == J_dof)
+              scratch.Nx[q_point][k] =
+                scratch.fe_values[J_fe].value(k, q_point);
+            else
+              Assert(k_group <= J_dof, ExcInternalError());
+          }
+      }
+    
+    // These quantities are required for dynamic computations and do not
+    // depend on quadrature point data.
+    const double material_density = parameters.muscle_density;
+    const double dt               = time.get_delta_t();
+
+    // Now we build the local cell stiffness matrix and RHS vector. Since the
+    // global and local system matrices are symmetric, we can exploit this
+    // property by building only the lower half of the local matrix and copying
+    // the values to the upper half.  So we only assemble half of the
+    // $\mathsf{\mathbf{k}}_{uu}$, $\mathsf{\mathbf{k}}_{\widetilde{p}
+    // \widetilde{p}} = \mathbf{0}$, $\mathsf{\mathbf{k}}_{\widetilde{J}
+    // \widetilde{J}}$ blocks, while the whole
+    // $\mathsf{\mathbf{k}}_{\widetilde{p} \widetilde{J}}$,
+    // $\mathsf{\mathbf{k}}_{u \widetilde{J}} = \mathbf{0}$,
+    // $\mathsf{\mathbf{k}}_{u \widetilde{p}}$ blocks are built.
+    //
+    // In doing so, we first extract some configuration dependent variables
+    // from our quadrature history objects for the current quadrature point.
+    for (const unsigned int q_point :
+         scratch.fe_values.quadrature_point_indices())
+      {
+        const SymmetricTensor<2, dim> tau     = lqph[q_point]->get_tau();
+        const double                  det_F   = lqph[q_point]->get_det_F();
+        const double                  p_tilde = lqph[q_point]->get_p_tilde();
+        const double                  J_tilde = lqph[q_point]->get_J_tilde();
+        const double dPsi_vol_dJ   = lqph[q_point]->get_dPsi_vol_dJ();
+
+        // Especially for the dynamic computation, we also need the following quantities:
+        const Tensor<1,dim> displacement_update   = lqph[q_point]->get_displacement();
+        const Tensor<1,dim> displacement_previous = lqph[q_point]->get_displacement_previous();
+        const Tensor<1,dim> velocity_previous     = lqph[q_point]->get_velocity_previous();
+
+        // These two tensors store some precomputed data. Their use will
+        // explained shortly.
+        SymmetricTensor<2, dim> symm_grad_Nx_i_x_Jc;
+        Tensor<1, dim>          grad_Nx_i_comp_i_x_tau;
+
+        // Next we define some aliases to make the assembly process easier to
+        // follow.
+        const std::vector<double> &                 N = scratch.Nx[q_point];
+        const std::vector<Tensor<1,dim>> &   vector_N = scratch.vector_Nx[q_point];
+        const std::vector<SymmetricTensor<2, dim>> &symm_grad_Nx =
+          scratch.symm_grad_Nx[q_point];
+        const double                       JxW = scratch.fe_values.JxW(q_point);
+
+        for (const unsigned int i : scratch.fe_values.dof_indices())
+          {
+            const unsigned int i_group = fe.system_to_base_index(i).first.first;
+
+            // We first compute the contributions
+            // from the internal forces.  Note, by
+            // definition of the rhs as the negative
+            // of the residual, these contributions
+            // are subtracted.
+            if (i_group == u_dof)
+              data.cell_rhs(i) -= (symm_grad_Nx[i] * tau) * JxW;
+            else if (i_group == p_dof)
+              data.cell_rhs(i) -= N[i] * (det_F - J_tilde) * JxW;
+            else if (i_group == J_dof)
+              data.cell_rhs(i) -= N[i] * (dPsi_vol_dJ - p_tilde) * JxW;
+            else
+              Assert(i_group <= J_dof, ExcInternalError());
+
+            if (i_group == u_dof && parameters.type_of_simulation == "dynamic")
+            {
+              data.cell_rhs(i) -= material_density * std::pow(dt,-2) * displacement_update * vector_N[i] * JxW;
+              data.cell_rhs(i) += material_density * std::pow(dt,-1) * velocity_previous * vector_N[i] * JxW;
+              data.cell_rhs(i) += material_density * std::pow(dt,-2) * displacement_previous * vector_N[i] * JxW;
+            }
+          }
+      }
+  }
+
+  template <int dim>
+  void Solid<dim>::copy_local_to_global_rhs(const PerTaskData_RHS &data)
+  {
+    for (unsigned int i = 0; i < dofs_per_cell; ++i)
+      system_rhs(data.local_dof_indices[i]) += data.cell_rhs(i);
+  }
 
   // @sect4{Solid::make_constraints}
   // The constraints for this problem are simple to describe.
