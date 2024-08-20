@@ -3125,7 +3125,7 @@ namespace Flexodeal
   void Solid<dim>::assemble_system_tangent()
   {
     timer.enter_subsection("Assemble system tangent");
-    std::cout << " ASM_K " << std::flush;
+    std::cout << " ASM_K  " << std::flush;
 
     tangent_matrix = 0.0;
 
@@ -3630,8 +3630,6 @@ namespace Flexodeal
       }
     else
       {
-        std::cout << " ------ " << std::flush;
-
         timer.enter_subsection("Linear solver");
         std::cout << " SLV " << std::flush;
 
