@@ -1669,6 +1669,7 @@ namespace Flexodeal
 
   private:
     void make_grid();
+    void system_setup(PETScWrappers::MPI::BlockVector &solution_delta);
 
     // MPI related variables 
     MPI_Comm mpi_communicator;
@@ -1684,6 +1685,57 @@ namespace Flexodeal
 
     // ...and description of the geometry on which the problem is solved:
     parallel::shared::Triangulation<dim> triangulation;
+
+    // Also, keep track of the current time and the time spent evaluating
+    // certain functions
+    //Time                time;
+    mutable TimerOutput  timer;
+
+    // A description of the finite-element system including the displacement
+    // polynomial degree, the degree-of-freedom handler, number of DoFs per
+    // cell and the extractor objects used to retrieve information from the
+    // solution vectors:
+    const unsigned int               degree;
+    const FESystem<dim>              fe;
+    DoFHandler<dim>                  dof_handler;
+    const unsigned int               dofs_per_cell;
+    const FEValuesExtractors::Vector u_fe;
+    const FEValuesExtractors::Scalar p_fe;
+    const FEValuesExtractors::Scalar J_fe;
+
+    // Description of how the block-system is arranged. There are 3 blocks,
+    // the first contains a vector DOF $\mathbf{u}$ while the other two
+    // describe scalar DOFs, $\widetilde{p}$ and $\widetilde{J}$.
+    static const unsigned int n_blocks          = 3;
+    static const unsigned int n_components      = dim + 2;
+    static const unsigned int first_u_component = 0;
+    static const unsigned int p_component       = dim;
+    static const unsigned int J_component       = dim + 1;
+
+    enum
+    {
+      u_dof = 0,
+      p_dof = 1,
+      J_dof = 2
+    };
+
+    std::vector<types::global_dof_index> dofs_per_block;
+
+    // More MPI related variables
+    std::vector<unsigned int> block_component;
+    std::vector<IndexSet> all_locally_owned_dofs;
+    IndexSet locally_owned_dofs;
+    IndexSet locally_relevant_dofs;
+    std::vector<IndexSet> locally_owned_partitioning;
+    std::vector<IndexSet> locally_relevant_partitioning;
+
+    // Objects that store the converged solution and right-hand side vectors,
+    // as well as the tangent matrix. There is an AffineConstraints object used
+    // to keep track of constraints.
+    AffineConstraints<double>             constraints;
+    PETScWrappers::MPI::BlockSparseMatrix tangent_matrix;
+    PETScWrappers::MPI::BlockVector       system_rhs;
+    PETScWrappers::MPI::BlockVector       solution_n_relevant;
 
     // Store the outputs in a separate folder
     char save_dir[80];
@@ -1708,6 +1760,32 @@ namespace Flexodeal
                     typename Triangulation<dim>::MeshSmoothing(
                     Triangulation<dim>::smoothing_on_refinement |
                     Triangulation<dim>::smoothing_on_coarsening))
+    , timer(mpi_communicator,
+            pcout,
+            TimerOutput::summary,
+            TimerOutput::wall_times)
+    , degree(parameters.poly_degree)
+    ,
+    // The Finite Element System is composed of dim continuous displacement
+    // DOFs, and discontinuous pressure and dilatation DOFs. In an attempt to
+    // satisfy the Babuska-Brezzi or LBB stability conditions (see Hughes
+    // (2000)), we setup a $Q_n \times DGPM_{n-1} \times DGPM_{n-1}$
+    // system. $Q_2 \times DGPM_1 \times DGPM_1$ elements satisfy this
+    // condition, while $Q_1 \times DGPM_0 \times DGPM_0$ elements do
+    // not. However, it has been shown that the latter demonstrate good
+    // convergence characteristics nonetheless.
+    fe(FE_Q<dim>(parameters.poly_degree),
+       dim, // displacement
+       FE_DGPMonomial<dim>(parameters.poly_degree - 1),
+       1, // pressure
+       FE_DGPMonomial<dim>(parameters.poly_degree - 1),
+       1) // dilatation
+    , dof_handler(triangulation)
+    , dofs_per_cell(fe.n_dofs_per_cell())
+    , u_fe(first_u_component)
+    , p_fe(p_component)
+    , J_fe(J_component)
+    , dofs_per_block(n_blocks)
   {
     Assert(dim == 2 || dim == 3,
            ExcMessage("This problem only works in 2 or 3 space dimensions."));
@@ -1816,7 +1894,12 @@ namespace Flexodeal
                                       ParameterHandler::KeepDeclarationOrder);
     }
 
+    // Create grid for the problem
     make_grid();
+
+    // Setup system, initialize solution_delta and solution_n_relevant
+    PETScWrappers::MPI::BlockVector solution_delta;
+    system_setup(solution_delta);
   }
 
   // @sect4{Solid::make_grid}
@@ -1856,6 +1939,105 @@ namespace Flexodeal
       std::ofstream output(filename.str().c_str());
       grid_out.write_msh(triangulation, output);
     }
+  }
+
+  template <int dim>
+  void Solid<dim>::system_setup(PETScWrappers::MPI::BlockVector &solution_delta)
+  {
+    TimerOutput::Scope t(timer, "Setup system");
+    pcout << "Setting up linear system structure..." << std::endl;
+
+    std::vector<unsigned int> block_component(n_components,
+                                              u_dof); // Displacement
+    block_component[p_component] = p_dof;             // Pressure
+    block_component[J_component] = J_dof;             // Dilatation
+
+    // The DOF handler is then initialised and we renumber the grid in
+    // an efficient manner. We also record the number of DOFs per block.
+    dof_handler.distribute_dofs(fe);
+    DoFRenumbering::Cuthill_McKee(dof_handler);
+    DoFRenumbering::component_wise(dof_handler, block_component);
+
+    // Count DoFs in each block
+    dofs_per_block.clear();
+    dofs_per_block.resize(n_blocks);
+    dofs_per_block = DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
+
+    const unsigned int n_u = dofs_per_block[u_dof],
+                        n_p = dofs_per_block[p_dof],
+                        n_J = dofs_per_block[J_dof];
+
+    pcout << "\tNumber of degrees of freedom per block: "
+          << "[n_u, n_p, n_J] = ["
+          << n_u << ", "
+          << n_p << ", "
+          << n_J << "]"
+          << std::endl;
+
+    // We now define what locally_owned_partitioning and 
+    // locally_relevant_partitioning are. We follow step-55
+    // for this.
+    locally_owned_dofs = dof_handler.locally_owned_dofs();
+    locally_owned_partitioning.resize(n_blocks);
+    locally_owned_partitioning[u_dof] = locally_owned_dofs.get_view(0, n_u);
+    locally_owned_partitioning[p_dof] = locally_owned_dofs.get_view(n_u, n_u+n_p);
+    locally_owned_partitioning[J_dof] = locally_owned_dofs.get_view(n_u+n_p, n_u+n_p+n_J);
+
+    DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
+    locally_relevant_partitioning.resize(n_blocks);
+    locally_relevant_partitioning[u_dof] = locally_relevant_dofs.get_view(0,n_u);
+    locally_relevant_partitioning[p_dof] = locally_relevant_dofs.get_view(n_u, n_u+n_p);
+    locally_relevant_partitioning[J_dof] = locally_relevant_dofs.get_view(n_u+n_p, n_u+n_p+n_J);
+
+    // Setup the sparsity pattern and tangent matrix
+    {
+      tangent_matrix.clear();
+
+      // We optimise the sparsity pattern to reflect the particular
+      // structure of the system matrix and prevent unnecessary data 
+      // creation for the right-diagonal block components.
+      Table<2, DoFTools::Coupling> coupling(n_components, n_components);
+      for (unsigned int ii = 0; ii < n_components; ++ii)
+          for (unsigned int jj = 0; jj < n_components; ++jj)
+          {
+              if ((   (ii <  p_component) && (jj == J_component))
+                  || ((ii == J_component) && (jj < p_component))
+                  || ((ii == p_component) && (jj == p_component)  ))
+                  coupling[ii][jj] = DoFTools::none;
+              else
+                  coupling[ii][jj] = DoFTools::always;
+          }
+      
+      BlockDynamicSparsityPattern dsp(locally_relevant_partitioning);
+      
+      DoFTools::make_sparsity_pattern(dof_handler, 
+                                      coupling,
+                                      dsp,
+                                      constraints,
+                                      false);
+      
+      SparsityTools::distribute_sparsity_pattern(
+        dsp,
+        dof_handler.locally_owned_dofs(),
+        mpi_communicator,
+        locally_relevant_dofs);
+      
+      tangent_matrix.reinit(locally_owned_partitioning,
+                            dsp,
+                            mpi_communicator);
+    }
+
+    // Finally construct the block vectors with the right sizes.
+    system_rhs.reinit(locally_owned_partitioning, 
+                      mpi_communicator);
+    solution_n_relevant.reinit(locally_owned_partitioning,
+                               locally_relevant_partitioning, 
+                               mpi_communicator);
+    solution_delta.reinit(locally_owned_partitioning, 
+                          mpi_communicator);
+
+    // Setup quadrature point history
+    // setup_qph();
   }
   
 } // End of namespace Flexodeal
