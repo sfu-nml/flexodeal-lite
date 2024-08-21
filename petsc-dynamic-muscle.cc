@@ -1680,6 +1680,9 @@ namespace Flexodeal
 
     void determine_component_extractors();
 
+    // Create and update the quadrature points.
+    void setup_qph();
+
     // MPI related variables 
     MPI_Comm mpi_communicator;
     const unsigned int n_mpi_processes;
@@ -1700,6 +1703,12 @@ namespace Flexodeal
     // certain functions
     //Time                time;
     mutable TimerOutput  timer;
+
+    // A storage object for quadrature point information. As opposed to
+    // step-18, deal.II's native quadrature point data manager is employed
+    // here.
+    CellDataStorage<typename Triangulation<dim>::cell_iterator,
+                    PointHistory<dim>> quadrature_point_history;
 
     // A description of the finite-element system including the displacement
     // polynomial degree, the degree-of-freedom handler, number of DoFs per
@@ -1733,6 +1742,13 @@ namespace Flexodeal
     std::vector<types::global_dof_index> element_indices_u;
     std::vector<types::global_dof_index> element_indices_p;
     std::vector<types::global_dof_index> element_indices_J;
+
+    // Rules for Gauss-quadrature on both the cell and faces. The number of
+    // quadrature points on both cells and faces is recorded.
+    const QGauss<dim>     qf_cell;
+    // const QGauss<dim - 1> qf_face;
+    const unsigned int    n_q_points;
+    // const unsigned int    n_q_points_f;
 
     // More MPI related variables
     std::vector<unsigned int> block_component;
@@ -1799,6 +1815,8 @@ namespace Flexodeal
     , p_fe(p_component)
     , J_fe(J_component)
     , dofs_per_block(n_blocks)
+    , qf_cell(parameters.quad_order)
+    , n_q_points(qf_cell.size())
   {
     Assert(dim == 2 || dim == 3,
            ExcMessage("This problem only works in 2 or 3 space dimensions."));
@@ -2085,7 +2103,15 @@ namespace Flexodeal
                           mpi_communicator);
 
     // Setup quadrature point history
-    // setup_qph();
+    setup_qph();
+
+    pcout << "Quadrature point data has been set up:"
+          << "\n\t Linear solver: " << parameters.type_lin 
+          << "\n\t Non-linear solver: " << parameters.type_nonlinear_solver << "\n"
+          << std::endl;
+
+    pcout << "Running " << parameters.type_of_simulation << " muscle contraction" 
+          << std::endl;
   }
 
   template <int dim>
@@ -2108,6 +2134,32 @@ namespace Flexodeal
           {
             Assert(k_group <= J_dof, ExcInternalError());
           }
+      }
+  }
+
+  template <int dim>
+  void Solid<dim>::setup_qph()
+  {
+    pcout << "\n    Setting up quadrature point data...\n" << std::endl;
+
+    {
+      FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
+        f_cell (IteratorFilters::SubdomainEqualTo(this_mpi_process), dof_handler.begin_active()),
+        f_endc (IteratorFilters::SubdomainEqualTo(this_mpi_process), dof_handler.end());
+      
+      quadrature_point_history.initialize(f_cell, f_endc, n_q_points);
+    }
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        Assert(cell->subdomain_id()==this_mpi_process, ExcInternalError());
+        const std::vector<std::shared_ptr<PointHistory<dim>>>
+          lqph = quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+          lqph[q_point]->setup_lqp(parameters);
       }
   }
   
