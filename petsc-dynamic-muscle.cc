@@ -1668,9 +1668,17 @@ namespace Flexodeal
     void run();
 
   private:
+    // We start the collection of member functions with one that builds the
+    // grid:
     void make_grid();
+
+    // Obtain all boundary IDs
     void determine_boundary_ids();
+
+    // Set up the finite element system to be solved:
     void system_setup(PETScWrappers::MPI::BlockVector &solution_delta);
+
+    void determine_component_extractors();
 
     // MPI related variables 
     MPI_Comm mpi_communicator;
@@ -1722,6 +1730,9 @@ namespace Flexodeal
     };
 
     std::vector<types::global_dof_index> dofs_per_block;
+    std::vector<types::global_dof_index> element_indices_u;
+    std::vector<types::global_dof_index> element_indices_p;
+    std::vector<types::global_dof_index> element_indices_J;
 
     // More MPI related variables
     std::vector<unsigned int> block_component;
@@ -1791,7 +1802,7 @@ namespace Flexodeal
   {
     Assert(dim == 2 || dim == 3,
            ExcMessage("This problem only works in 2 or 3 space dimensions."));
-    //determine_component_extractors();
+    determine_component_extractors();
     (void)strain_file;
     (void)activation_file;
 
@@ -2075,6 +2086,29 @@ namespace Flexodeal
 
     // Setup quadrature point history
     // setup_qph();
+  }
+
+  template <int dim>
+  void Solid<dim>::determine_component_extractors()
+  {
+    element_indices_u.clear();
+    element_indices_p.clear();
+    element_indices_J.clear();
+
+    for (unsigned int k = 0; k < fe.n_dofs_per_cell(); ++k)
+      {
+        const unsigned int k_group = fe.system_to_base_index(k).first.first;
+        if (k_group == u_dof)
+          element_indices_u.push_back(k);
+        else if (k_group == p_dof)
+          element_indices_p.push_back(k);
+        else if (k_group == J_dof)
+          element_indices_J.push_back(k);
+        else
+          {
+            Assert(k_group <= J_dof, ExcInternalError());
+          }
+      }
   }
   
 } // End of namespace Flexodeal
