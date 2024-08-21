@@ -1669,6 +1669,7 @@ namespace Flexodeal
 
   private:
     void make_grid();
+    void determine_boundary_ids();
     void system_setup(PETScWrappers::MPI::BlockVector &solution_delta);
 
     // MPI related variables 
@@ -1685,6 +1686,7 @@ namespace Flexodeal
 
     // ...and description of the geometry on which the problem is solved:
     parallel::shared::Triangulation<dim> triangulation;
+    std::vector<unsigned int> list_of_boundary_ids;
 
     // Also, keep track of the current time and the time spent evaluating
     // certain functions
@@ -1897,6 +1899,9 @@ namespace Flexodeal
     // Create grid for the problem
     make_grid();
 
+    // Obtain all boundary IDs
+    determine_boundary_ids();
+
     // Setup system, initialize solution_delta and solution_n_relevant
     PETScWrappers::MPI::BlockVector solution_delta;
     system_setup(solution_delta);
@@ -1939,6 +1944,38 @@ namespace Flexodeal
       std::ofstream output(filename.str().c_str());
       grid_out.write_msh(triangulation, output);
     }
+  }
+  
+  // @sect4{Solid::determine_boundary_ids}
+
+  // This is a simple function to retrieve all the boundary IDs set in the mesh.
+  // While this might be simple for a block geometry (the IDs are {0,1,2,3,4,5}),
+  // it might not be the case for other types of meshes. This will allow us to
+  // output forces for each boundary ID.
+  template <int dim>
+  void Solid<dim>::determine_boundary_ids()
+  {
+    // Note that, because the triangulation was defined as a "parallel::shared" 
+    // object, rather than "parallel::distributed", all processes should have access 
+    // to the entire mesh, and therefore, the output (list_of_boundary_ids) should be
+    // the same.
+
+    // Loop over all boundary cells and boundary faces
+    for (const auto &cell : triangulation.active_cell_iterators())
+      if (cell->at_boundary())
+        for (unsigned int face = 0; face < GeometryInfo<dim>::faces_per_cell; ++face)
+          if (cell->face(face)->at_boundary())
+          {
+            const unsigned int id = cell->face(face)->boundary_id();
+            const bool id_exists_in_list = std::find(std::begin(list_of_boundary_ids), 
+                                                     std::end(list_of_boundary_ids), id) 
+                                                     != std::end(list_of_boundary_ids);
+            if (!id_exists_in_list)
+              list_of_boundary_ids.push_back(id);
+          }
+
+    // Sort the array
+    std::sort(list_of_boundary_ids.begin(), list_of_boundary_ids.end());
   }
 
   template <int dim>
