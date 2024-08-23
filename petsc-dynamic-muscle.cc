@@ -1683,11 +1683,19 @@ namespace Flexodeal
     // Create and update the quadrature points.
     void setup_qph();
 
+    // Project J=1 onto the dilation finite element space
+    void set_initial_dilation();
+
     // MPI related variables 
     MPI_Comm mpi_communicator;
     const unsigned int n_mpi_processes;
     const unsigned int this_mpi_process;
     mutable ConditionalOStream pcout;
+
+    // Several outputs to assess our results. The first function 
+    // below will call all the other ones.
+    void output_results();
+    void output_vtk() const;
     
     // Parameters from .prm file
     Parameters::AllParameters parameters;
@@ -1701,7 +1709,7 @@ namespace Flexodeal
 
     // Also, keep track of the current time and the time spent evaluating
     // certain functions
-    //Time                time;
+    Time                 time;
     mutable TimerOutput  timer;
 
     // A storage object for quadrature point information. As opposed to
@@ -1789,6 +1797,7 @@ namespace Flexodeal
                     typename Triangulation<dim>::MeshSmoothing(
                     Triangulation<dim>::smoothing_on_refinement |
                     Triangulation<dim>::smoothing_on_coarsening))
+    , time(parameters.end_time, parameters.delta_t)
     , timer(mpi_communicator,
             pcout,
             TimerOutput::summary,
@@ -1874,6 +1883,9 @@ namespace Flexodeal
       else
         strcat(save_dir, "F");
     }
+
+    // Broadcast save_dir variable to the other processes
+    MPI_Bcast(&save_dir, 80, MPI_CHAR, 0, MPI_COMM_WORLD);
   }
 
   // Similarly to step-44, we start the function with preprocessing, 
@@ -1934,6 +1946,18 @@ namespace Flexodeal
     // Setup system, initialize solution_delta and solution_n_relevant
     PETScWrappers::MPI::BlockVector solution_delta;
     system_setup(solution_delta);
+
+    // Set initial dilation J = 1. In a non-PETSc/Trilinos code, this
+    // can be done using the VectorTools::project function, but because
+    // this function does not seem to be available yet for distributed
+    // vectors, we reimplement this function from scratch.
+    set_initial_dilation();
+
+    // Output initial solution
+    output_results();
+
+    time.increment();
+
   }
 
   // @sect4{Solid::make_grid}
@@ -2013,8 +2037,7 @@ namespace Flexodeal
     TimerOutput::Scope t(timer, "Setup system");
     pcout << "Setting up linear system structure..." << std::endl;
 
-    std::vector<unsigned int> block_component(n_components,
-                                              u_dof); // Displacement
+    std::fill_n(std::back_inserter(block_component), n_components, u_dof); // Displacement
     block_component[p_component] = p_dof;             // Pressure
     block_component[J_component] = J_dof;             // Dilatation
 
@@ -2140,7 +2163,7 @@ namespace Flexodeal
   template <int dim>
   void Solid<dim>::setup_qph()
   {
-    pcout << "\n    Setting up quadrature point data...\n" << std::endl;
+    pcout << "\nSetting up quadrature point data...\n" << std::endl;
 
     {
       FilteredIterator<typename DoFHandler<dim>::active_cell_iterator>
@@ -2162,7 +2185,188 @@ namespace Flexodeal
           lqph[q_point]->setup_lqp(parameters);
       }
   }
-  
+
+  // @sect4{Solid::set_initial_dilation}
+
+  // The VectorTools::project() is not available in deal.II v9.5.0 for an MPI-based
+  // code, so we have to implement it by ourselves. Recall that the main objective
+  // is to initialize the dilation as J = 1 by projecting this function onto the
+  // dilation finite element space.
+  template <int dim>
+  void Solid<dim>::set_initial_dilation()
+  {
+    TimerOutput::Scope t(timer, "Setup initial dilation");
+    pcout << "\nSetting up initial dilation...\n" << std::endl;
+    DoFHandler<dim> dof_handler_J(triangulation);
+    FE_DGPMonomial<dim> fe_J(parameters.poly_degree - 1);
+
+    IndexSet                      locally_owned_dofs_J;
+    IndexSet                      locally_relevant_dofs_J;
+    AffineConstraints             constraints_J;
+    PETScWrappers::MPI::SparseMatrix   mass_matrix;
+    PETScWrappers::MPI::Vector    load_vector;
+    PETScWrappers::MPI::Vector    J_local; 
+
+    // Setup system
+    dof_handler_J.distribute_dofs(fe_J);
+    locally_owned_dofs_J = dof_handler_J.locally_owned_dofs();
+    DoFTools::extract_locally_relevant_dofs(dof_handler_J, locally_relevant_dofs_J);
+
+    J_local.reinit(locally_owned_dofs_J, locally_relevant_dofs_J, mpi_communicator);
+    load_vector.reinit(locally_owned_dofs_J, mpi_communicator);
+
+    constraints_J.clear();
+    constraints_J.reinit(locally_relevant_dofs_J);
+    constraints_J.close();
+
+    DynamicSparsityPattern dsp_J(locally_relevant_dofs_J);
+    DoFTools::make_sparsity_pattern(
+      dof_handler_J, dsp_J, constraints_J, false);
+    SparsityTools::distribute_sparsity_pattern(
+      dsp_J,
+      dof_handler_J.locally_owned_dofs(),
+      mpi_communicator,
+      locally_relevant_dofs_J);
+    mass_matrix.reinit(
+      locally_owned_dofs_J, locally_owned_dofs_J, dsp_J, mpi_communicator);
+
+    // Assemble system
+    const QGauss<dim> quad_formula(parameters.quad_order);
+    FEValues<dim> fe_values_J(
+      fe_J, quad_formula, 
+      update_values | update_quadrature_points | update_JxW_values);
+    const unsigned int dofs_per_cell_J = fe_J.dofs_per_cell;
+    const unsigned int n_q_points_J = quad_formula.size();
+
+    FullMatrix<double> cell_matrix(dofs_per_cell_J, dofs_per_cell_J);
+    Vector<double> cell_rhs(dofs_per_cell_J);
+    std::vector<types::global_dof_index> local_dof_indices_J(dofs_per_cell_J);
+
+    for (const auto &cell : dof_handler_J.active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        cell_matrix = 0;
+        cell_rhs = 0;
+        fe_values_J.reinit(cell);
+
+        for (unsigned int q_point = 0; q_point < n_q_points_J; ++q_point)
+          for (unsigned int i = 0; i < dofs_per_cell_J; ++i)
+          {
+            cell_rhs(i) += (1 * 
+                            fe_values_J.shape_value(i,q_point) * 
+                            fe_values_J.JxW(q_point));
+            
+            for (unsigned int j = 0; j < dofs_per_cell_J; ++j)
+              cell_matrix(i,j) += (fe_values_J.shape_value(i, q_point) *
+                                   fe_values_J.shape_value(j, q_point) *
+                                   fe_values_J.JxW(q_point));
+          }
+
+        cell->get_dof_indices(local_dof_indices_J);
+        constraints_J.distribute_local_to_global(
+          cell_matrix, cell_rhs, local_dof_indices_J, mass_matrix, load_vector);
+      }
+
+    // Notice that the assembling above is just a local operation. So, to
+    // form the "global" linear system, a synchronization between all
+    // processors is needed. This could be done by invoking the function
+    // compress(). See @ref GlossCompress  "Compressing distributed objects"
+    // for more information on what is compress() designed to do. 
+    mass_matrix.compress(VectorOperation::add);
+    load_vector.compress(VectorOperation::add);
+
+    // Solve
+    PETScWrappers::MPI::Vector J_distributed(locally_owned_dofs_J, mpi_communicator);
+    SolverControl solver_control(dof_handler_J.n_dofs(), 1e-12);
+    PETScWrappers::SolverCG solver(solver_control);
+
+    PETScWrappers::PreconditionJacobi preconditioner;
+    preconditioner.initialize(mass_matrix);
+    solver.solve(mass_matrix, J_distributed, load_vector, preconditioner);
+    constraints_J.distribute(J_distributed);
+
+    // We have computed the J=1 in the finite element space. We now transfer
+    // this quantity to the solution_n_relevant vector.
+    solution_n_relevant.block(J_dof) = J_distributed;
+
+    // We destroy the dof_handler_J object and leave the subsection.
+    dof_handler_J.clear();
+  }
+
+  // @sect4{Solid::output_results}
+  // The output_results function looks a bit different from other tutorials.
+  // This is because not only we're interested in visualizing Paraview files
+  // but also traces (time series) of other quantities. The Paraview files
+  // are exported in the output_vtk function.
+  template <int dim>
+  void Solid<dim>::output_results()
+  {
+    TimerOutput::Scope t(timer, "Setup initial dilation");
+    output_vtk();
+  }
+
+  template <int dim>
+  void Solid<dim>::output_vtk() const
+  {
+      DataOut<dim> data_out;
+      data_out.attach_dof_handler(dof_handler);
+      std::vector<DataComponentInterpretation::DataComponentInterpretation>
+        data_component_interpretation(
+          dim, DataComponentInterpretation::component_is_part_of_vector);
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
+      data_component_interpretation.push_back(
+        DataComponentInterpretation::component_is_scalar);
+
+      std::vector<std::string> solution_name(dim, "displacement");
+      solution_name.emplace_back("pressure");
+      solution_name.emplace_back("dilatation");
+
+      data_out.attach_dof_handler(dof_handler);
+      data_out.add_data_vector(solution_n_relevant,
+                               solution_name,
+                               DataOut<dim>::type_dof_data,
+                               data_component_interpretation);
+      
+
+      // As a last piece of data, let us also add the partitioning of the domain
+      // into subdomains associated with the processors if this is a parallel
+      // job. This works in the exact same way as in the step-17 program:
+      std::vector<types::subdomain_id> partition_int(
+        triangulation.n_active_cells());
+      GridTools::get_subdomain_association(triangulation, partition_int);
+      const Vector<double> partitioning(partition_int.begin(),
+                                        partition_int.end());
+      data_out.add_data_vector(partitioning, "partitioning");
+      
+      // Since we are dealing with a large deformation problem, it would be nice
+      // to display the result on a displaced grid!  The MappingQEulerian class
+      // linked with the DataOut class provides an interface through which this
+      // can be achieved without physically moving the grid points in the
+      // Triangulation object ourselves.  We first need to copy the solution to
+      // a temporary vector and then create the Eulerian mapping. We also
+      // specify the polynomial degree to the DataOut object in order to produce
+      // a more refined output data set when higher order polynomials are used.
+      MappingQEulerian<dim, PETScWrappers::MPI::BlockVector>
+      q_mapping(degree, dof_handler, solution_n_relevant);
+
+      data_out.build_patches(q_mapping, degree);
+
+      std::string str_save_dir(save_dir);
+      str_save_dir += "/";
+
+      const std::string pvtu_filename = data_out.write_vtu_with_pvtu_record(
+        str_save_dir, "solution-3d", 0, mpi_communicator, 4);
+      
+      if (this_mpi_process == 0)
+      {
+        static std::vector<std::pair<double, std::string>> times_and_names;
+        times_and_names.emplace_back(time.current(), pvtu_filename);
+        std::ofstream pvd_output(str_save_dir + "solution-3d.pvd");
+        DataOutBase::write_pvd_record(pvd_output, times_and_names);
+      }
+  }
+
 } // End of namespace Flexodeal
 
 
