@@ -887,7 +887,7 @@ namespace Flexodeal
         Assert(kappa_muscle > 0, 
                ExcMessage("Bulk modulus must be positive!"));
         Assert(initial_fibre_orientation.norm() != 0, 
-               ExcMessage("Initial fibre orientation must be a nonzero vector!"))
+               ExcMessage("Initial fibre orientation must be a nonzero vector!"));
       }
 
     // We update the material model with various deformation dependent data
