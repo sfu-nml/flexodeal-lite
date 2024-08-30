@@ -73,7 +73,7 @@
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_out.h>
-#include <deal.II/distributed/shared_tria.h>
+#include <deal.II/distributed/tria.h>
 
 #include <deal.II/fe/fe_dgp_monomial.h>
 #include <deal.II/fe/fe_dgq.h>
@@ -1668,6 +1668,21 @@ namespace Flexodeal
     void run();
 
   private:
+    // In the private section of this class, we first forward declare a number
+    // of objects that are used in parallelizing work using the WorkStream
+    // object (see the @ref threads module for more information on this).
+    //
+    // We declare such structures for the computation of tangent (stiffness)
+    // matrix and right hand side vector, and for updating
+    // quadrature points:
+    struct PerTaskData_K;
+    struct ScratchData_K;
+
+    struct PerTaskData_RHS;
+    struct ScratchData_RHS;
+
+    struct ScratchData_UQPH;
+
     // We start the collection of member functions with one that builds the
     // grid:
     void make_grid();
@@ -1682,6 +1697,27 @@ namespace Flexodeal
 
     // Create and update the quadrature points.
     void setup_qph();
+
+    void update_qph_incremental(PETScWrappers::MPI::BlockVector &solution_delta);
+
+    void update_qph_incremental_one_cell(
+      const typename DoFHandler<dim>::active_cell_iterator &cell,
+      ScratchData_UQPH                                     &scratch);
+    
+    // Solution retrieval
+    PETScWrappers::MPI::BlockVector 
+    get_total_solution(const PETScWrappers::MPI::BlockVector &solution_delta) const;
+
+    // In this non-Workstream scenario, we do not need PerTaskData_TIMESTEP and
+    // ScratchData_TIMESTEP structures. Moreover, update_timestep calls
+    // updates_values_timestep in an embarrasingly parallel way, so there is no need
+    // to code a separate update_timestep_one_cell function.
+    void update_timestep();
+
+    // Solve for the displacement using a Newton-Raphson method. We break this
+    // function into the nonlinear loop and the function that solves the
+    // linearized Newton-Raphson step:
+    void solve_nonlinear_timestep(PETScWrappers::MPI::BlockVector &solution_delta);
 
     // Project J=1 onto the dilation finite element space
     void set_initial_dilation();
@@ -1704,13 +1740,19 @@ namespace Flexodeal
     double vol_reference;
 
     // ...and description of the geometry on which the problem is solved:
-    parallel::shared::Triangulation<dim> triangulation;
+    parallel::distributed::Triangulation<dim> triangulation;
     std::vector<unsigned int> list_of_boundary_ids;
 
     // Also, keep track of the current time and the time spent evaluating
     // certain functions
     Time                 time;
     mutable TimerOutput  timer;
+
+    // Create pulling profile
+    TabularFunction u_dir;
+
+    // Create activation profile
+    TabularFunction activation_function;
 
     // A storage object for quadrature point information. As opposed to
     // step-18, deal.II's native quadrature point data manager is employed
@@ -1802,6 +1844,8 @@ namespace Flexodeal
             pcout,
             TimerOutput::summary,
             TimerOutput::wall_times)
+    , u_dir(strain_file)
+    , activation_function(activation_file)
     , degree(parameters.poly_degree)
     ,
     // The Finite Element System is composed of dim continuous displacement
@@ -1957,8 +2001,202 @@ namespace Flexodeal
     output_results();
 
     time.increment();
+    // We then declare the incremental solution update $\varDelta
+    // \mathbf{\Xi} \dealcoloneq \{\varDelta \mathbf{u},\varDelta \widetilde{p},
+    // \varDelta \widetilde{J} \}$ and start the loop over the time domain.
+    //while (time.current() < time.end())
+    {
+      // ...solve the current time step and update total solution vector
+      // $\mathbf{\Xi}_{\textrm{n}} = \mathbf{\Xi}_{\textrm{n-1}} +
+      // \varDelta \mathbf{\Xi}$...
+      solve_nonlinear_timestep(solution_delta);
+      {
+        // We have to use a non-ghosted version of solution_n_relevant to
+        // do the addition
+        PETScWrappers::MPI::BlockVector tmp(locally_owned_partitioning,
+                                            mpi_communicator);
+        tmp = solution_n_relevant;
+        tmp += solution_delta;
+        solution_n_relevant = tmp;
+      }
+      // ...and output the results (including VTU files) before moving on 
+      // happily to the next time step:
+      output_results();
+
+      // If our computation is dynamic (rather than quasi-static),
+      // then we have to update the "previous" variables. 
+      if (parameters.type_of_simulation == "dynamic")
+        update_timestep();
+
+      time.increment();
+
+      // Reset the solution_delta object for the next timestep
+      solution_delta = 0.0;
+    }
 
   }
+
+  // And finally we define the structures to assist with updating the quadrature
+  // point information.
+  // The ScratchData object will be used to store an alias for the solution
+  // vector so that we don't have to copy this large data structure. We then
+  // define a number of vectors to extract the solution values and gradients at
+  // the quadrature points.
+  template <int dim>
+  struct Solid<dim>::ScratchData_UQPH
+  {
+    const PETScWrappers::MPI::BlockVector &solution_total;
+
+    std::vector<Tensor<1, dim>> solution_values_u_total;
+    std::vector<Tensor<2, dim>> solution_grads_u_total;
+    std::vector<double>         solution_values_p_total;
+    std::vector<double>         solution_values_J_total;
+
+    FEValues<dim> fe_values;
+
+    ScratchData_UQPH(const FiniteElement<dim> &fe_cell,
+                     const QGauss<dim>        &qf_cell,
+                     const UpdateFlags         uf_cell,
+                     const PETScWrappers::MPI::BlockVector &solution_total)
+      : solution_total(solution_total)
+      , solution_values_u_total(qf_cell.size())
+      , solution_grads_u_total(qf_cell.size())
+      , solution_values_p_total(qf_cell.size())
+      , solution_values_J_total(qf_cell.size())
+      , fe_values(fe_cell, qf_cell, uf_cell)
+    {}
+
+    ScratchData_UQPH(const ScratchData_UQPH &rhs)
+      : solution_total(rhs.solution_total)
+      , solution_values_u_total(rhs.solution_values_u_total)
+      , solution_grads_u_total(rhs.solution_grads_u_total)
+      , solution_values_p_total(rhs.solution_values_p_total)
+      , solution_values_J_total(rhs.solution_values_J_total)
+      , fe_values(rhs.fe_values.get_fe(),
+                  rhs.fe_values.get_quadrature(),
+                  rhs.fe_values.get_update_flags())
+    {}
+
+    void reset()
+    {
+      const unsigned int n_q_points = solution_grads_u_total.size();
+      for (unsigned int q = 0; q < n_q_points; ++q)
+        {
+          solution_values_u_total[q] = 0.0;
+          solution_grads_u_total[q]  = 0.0;
+          solution_values_p_total[q] = 0.0;
+          solution_values_J_total[q] = 0.0;
+        }
+    }
+  };
+
+  template <int dim>
+  void Solid<dim>::update_timestep()
+  {
+    TimerOutput::Scope t(timer, "Update time stepping");
+    pcout << "\n" << "-------- Updating time stepping --------" << "\n" << std::flush;
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        const std::vector<std::shared_ptr<PointHistory<dim>>>
+        lqph = quadrature_point_history.get_data(cell);
+    
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+          lqph[q_point]->update_values_timestep(time);
+      }
+  }
+
+  // @sect4{Solid::get_total_solution}
+
+  // This function provides the total solution, which is valid at any Newton step.
+  // This is required as, to reduce computational error, the total solution is
+  // only updated at the end of the timestep.
+
+  template <int dim>
+  PETScWrappers::MPI::BlockVector 
+  Solid<dim>::get_total_solution(const PETScWrappers::MPI::BlockVector &solution_delta) const
+  {
+    // The output solution_total should be GHOSTED so we can compute function values and
+    // gradients inside ScratchData_UQPH. However, we cannot add this vector directly
+    // to solution_delta because this operation required NON-GHOSTED vectors. Therefore,
+    // we have to use a temporal variable to perform the addition.
+    
+    PETScWrappers::MPI::BlockVector solution_total(locally_owned_partitioning,
+                                                   locally_relevant_partitioning,
+                                                   mpi_communicator);
+
+    PETScWrappers::MPI::BlockVector tmp(locally_owned_partitioning,
+                                        mpi_communicator);
+    
+    tmp = solution_n_relevant; // solution_n_relevant is ghosted
+    tmp += solution_delta;     // tmp and solution_delta are not ghosted, they can be added
+    solution_total = tmp;      // Assign the values of tmp to the ghosted vector of interest
+    
+    return solution_total;
+  }
+
+  template <int dim>
+  void Solid<dim>::update_qph_incremental(PETScWrappers::MPI::BlockVector &solution_delta)
+  {
+    TimerOutput::Scope t(timer, "Update QPH data");
+    //pcout << " UQPH " << std::flush;
+
+    const PETScWrappers::MPI::BlockVector solution_total(get_total_solution(solution_delta));
+    const UpdateFlags uf_UQPH(update_values | update_gradients);
+    ScratchData_UQPH  scratch_data_UQPH(fe, qf_cell, uf_UQPH, solution_total);
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+        update_qph_incremental_one_cell(cell, scratch_data_UQPH);
+  }
+
+  template <int dim>
+  void Solid<dim>::update_qph_incremental_one_cell(
+    const typename DoFHandler<dim>::active_cell_iterator &cell,
+    ScratchData_UQPH &scratch)
+  {
+    const std::vector<std::shared_ptr<PointHistory<dim>>> lqph =
+      quadrature_point_history.get_data(cell);
+    Assert(lqph.size() == n_q_points, ExcInternalError());
+
+    Assert(scratch.solution_values_u_total.size() == n_q_points,
+           ExcInternalError());
+    Assert(scratch.solution_grads_u_total.size() == n_q_points,
+           ExcInternalError());
+    Assert(scratch.solution_values_p_total.size() == n_q_points,
+           ExcInternalError());
+    Assert(scratch.solution_values_J_total.size() == n_q_points,
+           ExcInternalError());
+
+    scratch.reset();
+
+    // We first need to find the values and gradients at quadrature points
+    // inside the current cell and then we update each local QP using the
+    // displacement gradient and total pressure and dilatation solution
+    // values:
+    scratch.fe_values.reinit(cell);
+    scratch.fe_values[u_fe].get_function_values(
+      scratch.solution_total, scratch.solution_values_u_total);
+    scratch.fe_values[u_fe].get_function_gradients(
+      scratch.solution_total, scratch.solution_grads_u_total);
+    scratch.fe_values[p_fe].get_function_values(
+      scratch.solution_total, scratch.solution_values_p_total);
+    scratch.fe_values[J_fe].get_function_values(
+      scratch.solution_total, scratch.solution_values_J_total);
+
+    for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      lqph[q_point]->update_values(scratch.solution_values_u_total[q_point],
+                                   scratch.solution_grads_u_total[q_point],
+                                   scratch.solution_values_p_total[q_point],
+                                   scratch.solution_values_J_total[q_point],
+                                   activation_function(time.current()),
+                                   time.get_delta_t());
+  }
+
+
 
   // @sect4{Solid::make_grid}
 
@@ -2117,6 +2355,13 @@ namespace Flexodeal
     }
 
     // Finally construct the block vectors with the right sizes.
+    // The solution vector we seek does not only store
+    // elements we own, but also ghost entries; on the other hand, the right
+    // hand side vector only needs to have the entries the current processor
+    // owns since all we will ever do is write into it, never read from it on
+    // locally owned cells (of course the linear solvers will read from it,
+    // but they do not care about the geometric location of degrees of
+    // freedom).
     system_rhs.reinit(locally_owned_partitioning, 
                       mpi_communicator);
     solution_n_relevant.reinit(locally_owned_partitioning,
@@ -2293,6 +2538,32 @@ namespace Flexodeal
     dof_handler_J.clear();
   }
 
+  template <int dim>
+  void Solid<dim>::solve_nonlinear_timestep(
+    PETScWrappers::MPI::BlockVector &solution_delta)
+  {
+    pcout << std::endl
+          << "Timestep " << time.get_timestep() << " @ " << time.current()
+          << "s" << std::endl;
+
+    pcout << "Current activation: " << activation_function(time.current()) * 100 << "%\n"
+          << "Current strain:     " << u_dir(time.current())
+          << std::endl;
+
+    //BlockVector<double> newton_update(dofs_per_block);
+
+    //error_residual.reset();
+    //error_residual_0.reset();
+    //error_residual_norm.reset();
+    //error_update.reset();
+    //error_update_0.reset();
+    //error_update_norm.reset();
+
+    //print_conv_header();
+
+    update_qph_incremental(solution_delta);
+  }
+
   // @sect4{Solid::output_results}
   // The output_results function looks a bit different from other tutorials.
   // This is because not only we're interested in visualizing Paraview files
@@ -2301,7 +2572,7 @@ namespace Flexodeal
   template <int dim>
   void Solid<dim>::output_results()
   {
-    TimerOutput::Scope t(timer, "Setup initial dilation");
+    TimerOutput::Scope t(timer, "Output results");
     output_vtk();
   }
 
@@ -2356,7 +2627,7 @@ namespace Flexodeal
       str_save_dir += "/";
 
       const std::string pvtu_filename = data_out.write_vtu_with_pvtu_record(
-        str_save_dir, "solution-3d", 0, mpi_communicator, 4);
+        str_save_dir, "solution-3d", time.get_timestep(), mpi_communicator, 4);
       
       if (this_mpi_process == 0)
       {
