@@ -1796,9 +1796,9 @@ namespace Flexodeal
     // Rules for Gauss-quadrature on both the cell and faces. The number of
     // quadrature points on both cells and faces is recorded.
     const QGauss<dim>     qf_cell;
-    // const QGauss<dim - 1> qf_face;
+    const QGauss<dim - 1> qf_face;
     const unsigned int    n_q_points;
-    // const unsigned int    n_q_points_f;
+    const unsigned int    n_q_points_f;
 
     // More MPI related variables
     std::vector<unsigned int> block_component;
@@ -1815,6 +1815,58 @@ namespace Flexodeal
     PETScWrappers::MPI::BlockSparseMatrix tangent_matrix;
     PETScWrappers::MPI::BlockVector       system_rhs;
     PETScWrappers::MPI::BlockVector       solution_n_relevant;
+
+    // Then define a number of variables to store norms and update norms and
+    // normalization factors.
+    struct Errors
+    {
+      Errors()
+        : norm(1.0)
+        , u(1.0)
+        , p(1.0)
+        , J(1.0)
+      {}
+
+      void reset()
+      {
+        norm = 1.0;
+        u    = 1.0;
+        p    = 1.0;
+        J    = 1.0;
+      }
+      void normalize(const Errors &rhs)
+      {
+        if (rhs.norm != 0.0)
+          norm /= rhs.norm;
+        if (rhs.u != 0.0)
+          u /= rhs.u;
+        if (rhs.p != 0.0)
+          p /= rhs.p;
+        if (rhs.J != 0.0)
+          J /= rhs.J;
+      }
+
+      double norm, u, p, J;
+    };
+
+    Errors error_residual, error_residual_0, error_residual_norm, error_update,
+      error_update_0, error_update_norm;
+
+    // Methods to calculate error measures
+    void get_error_residual(Errors &error_residual);
+
+    void get_error_update(const BlockVector<double> &newton_update,
+                          Errors &                   error_update);
+
+    std::pair<double, double> get_error_dilation() const;
+
+    // Compute the volume in the spatial configuration
+    double compute_vol_current() const;
+
+    // Print information to screen in a pleasing way...
+    void print_conv_header();
+
+    void print_conv_footer();
 
     // Store the outputs in a separate folder
     char save_dir[80];
@@ -1869,7 +1921,9 @@ namespace Flexodeal
     , J_fe(J_component)
     , dofs_per_block(n_blocks)
     , qf_cell(parameters.quad_order)
+    , qf_face(parameters.quad_order)
     , n_q_points(qf_cell.size())
+    , n_q_points_f(qf_face.size())
   {
     Assert(dim == 2 || dim == 3,
            ExcMessage("This problem only works in 2 or 3 space dimensions."));
@@ -2142,7 +2196,7 @@ namespace Flexodeal
   void Solid<dim>::update_qph_incremental(PETScWrappers::MPI::BlockVector &solution_delta)
   {
     TimerOutput::Scope t(timer, "Update QPH data");
-    //pcout << " UQPH " << std::flush;
+    pcout << " UQPH " << std::flush;
 
     const PETScWrappers::MPI::BlockVector solution_total(get_total_solution(solution_delta));
     const UpdateFlags uf_UQPH(update_values | update_gradients);
@@ -2550,18 +2604,131 @@ namespace Flexodeal
           << "Current strain:     " << u_dir(time.current())
           << std::endl;
 
-    //BlockVector<double> newton_update(dofs_per_block);
+    PETScWrappers::MPI::BlockVector newton_update;
+    newton_update.reinit(locally_owned_partitioning,
+                         mpi_communicator);
 
-    //error_residual.reset();
-    //error_residual_0.reset();
-    //error_residual_norm.reset();
-    //error_update.reset();
-    //error_update_0.reset();
-    //error_update_norm.reset();
+    error_residual.reset();
+    error_residual_0.reset();
+    error_residual_norm.reset();
+    error_update.reset();
+    error_update_0.reset();
+    error_update_norm.reset();
 
-    //print_conv_header();
+    print_conv_header();
 
     update_qph_incremental(solution_delta);
+
+    print_conv_footer();
+  }
+
+  // @sect4{Solid::print_conv_header and Solid::print_conv_footer}
+
+  // This program prints out data in a nice table that is updated
+  // on a per-iteration basis. The next two functions set up the table
+  // header and footer:
+  template <int dim>
+  void Solid<dim>::print_conv_header()
+  {
+    const unsigned int l_width = 150;
+
+    pcout << std::string(l_width, '_') << std::endl;
+
+    pcout << "               SOLVER STEP               "
+          << " |  LIN_IT   LIN_RES    RES_NORM    "
+          << " RES_U     RES_P      RES_J     NU_NORM     "
+          << " NU_U       NU_P       NU_J " << std::endl;
+
+    pcout << std::string(l_width, '_') << std::endl;
+  }
+
+  template <int dim>
+  void Solid<dim>::print_conv_footer()
+  {
+    const unsigned int l_width = 150;
+
+    pcout << std::string(l_width, '_') << std::endl;
+
+    const std::pair<double, double> error_dil = get_error_dilation();
+
+    pcout << "Relative errors:" << std::endl
+          << "Displacement:\t" << error_update.u / error_update_0.u
+          << std::endl
+          << "Force: \t\t" << error_residual.u / error_residual_0.u
+          << std::endl
+          << "Dilatation:\t" << error_dil.first << std::endl
+          << "v / V_0:\t" << error_dil.second * vol_reference << " / "
+          << vol_reference << " = " << error_dil.second << std::endl;
+  }
+
+  template <int dim>
+  std::pair<double, double> Solid<dim>::get_error_dilation() const
+  {
+    double dil_L2_error = 0.0;
+
+    FEValues<dim> fe_values(fe, qf_cell, update_JxW_values);
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        fe_values.reinit(cell);
+
+        const std::vector<std::shared_ptr<const PointHistory<dim>>>
+        lqph = quadrature_point_history.get_data(cell);
+
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+        {
+          const double det_F_qp = lqph[q_point]->get_det_F();
+          const double J_tilde_qp = lqph[q_point]->get_J_tilde();
+          const double the_error_qp_squared = std::pow((det_F_qp - J_tilde_qp), 2);
+          const double JxW = fe_values.JxW(q_point);
+
+          dil_L2_error += the_error_qp_squared * JxW;
+        }
+      }
+    
+    dil_L2_error = Utilities::MPI::sum(dil_L2_error, mpi_communicator);
+
+    return std::make_pair(std::sqrt(dil_L2_error), 
+                          compute_vol_current() / vol_reference);
+  }
+
+  // Calculate the volume of the domain in the spatial configuration
+  template <int dim>
+  double Solid<dim>::compute_vol_current() const
+  {
+    double vol_current = 0.0;
+
+    FEValues<dim> fe_values(fe, qf_cell, update_JxW_values);
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+      if (cell->is_locally_owned())
+      {
+        fe_values.reinit(cell);
+
+        // In contrast to that which was previously called for,
+        // in this instance the quadrature point data is specifically
+        // non-modifiable since we will only be accessing data.
+        // We ensure that the right get_data function is called by
+        // marking this update function as constant.
+        const std::vector<std::shared_ptr<const PointHistory<dim>>> lqph =
+          quadrature_point_history.get_data(cell);
+        Assert(lqph.size() == n_q_points, ExcInternalError());
+
+        for (const unsigned int q_point : fe_values.quadrature_point_indices())
+          {
+            const double det_F_qp = lqph[q_point]->get_det_F();
+            const double JxW      = fe_values.JxW(q_point);
+
+            vol_current += det_F_qp * JxW;
+          }
+      }
+    
+    vol_current = Utilities::MPI::sum(vol_current, mpi_communicator);
+    Assert(vol_current > 0.0, ExcInternalError());
+    return vol_current;
   }
 
   // @sect4{Solid::output_results}
