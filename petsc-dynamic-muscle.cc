@@ -1698,7 +1698,7 @@ namespace Flexodeal
     // Create and update the quadrature points.
     void setup_qph();
 
-    void update_qph_incremental();
+    void update_qph_incremental(const PETScWrappers::MPI::BlockVector &evaluation_point);
 
     void update_qph_incremental_one_cell(
       const typename DoFHandler<dim>::active_cell_iterator &cell,
@@ -2071,7 +2071,7 @@ namespace Flexodeal
 
     time.increment();
 
-    update_qph_incremental();
+    update_qph_incremental(solution_n_relevant);
 
     update_timestep();
 
@@ -2151,13 +2151,14 @@ namespace Flexodeal
   }
 
   template <int dim>
-  void Solid<dim>::update_qph_incremental()
+  void Solid<dim>::update_qph_incremental(
+    const PETScWrappers::MPI::BlockVector &evaluation_point)
   {
     TimerOutput::Scope t(timer, "Update QPH data");
     pcout << " UQPH " << std::flush;
 
     const UpdateFlags uf_UQPH(update_values | update_gradients);
-    ScratchData_UQPH  scratch_data_UQPH(fe, qf_cell, uf_UQPH, solution_n_relevant);
+    ScratchData_UQPH  scratch_data_UQPH(fe, qf_cell, uf_UQPH, evaluation_point);
 
     for (const auto &cell : dof_handler.active_cell_iterators())
       if (cell->is_locally_owned())
