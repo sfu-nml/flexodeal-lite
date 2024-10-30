@@ -766,7 +766,7 @@ namespace Flexodeal
       initialize_map(filename);
     }
 
-    double operator()(const double t);
+    double operator()(const double t) const;
 
   private:
     std::map<double,double> table_values;
@@ -794,7 +794,7 @@ namespace Flexodeal
   //   is in data range
   // - Retrieve the original y coordinate if found
   // - Output a constant value if t exceeds data range
-  double TabularFunction::operator()(const double t)
+  double TabularFunction::operator()(const double t) const
   {
     double out = 1000000; /*Bogus value*/
     auto iter_t = table_values.find(t);
@@ -1763,6 +1763,11 @@ namespace Flexodeal
     std::vector<types::global_dof_index> global_dof_index_u_mid;
     std::vector<types::global_dof_index> global_dof_index_u_right;
 
+    std::vector<types::global_dof_index> global_dof_index_y_left;
+    std::vector<types::global_dof_index> global_dof_index_y_right;
+    std::vector<types::global_dof_index> global_dof_index_z_top;
+    std::vector<types::global_dof_index> global_dof_index_z_bottom;
+
     // Several outputs to assess our results. The first function 
     // below will call all the other ones.
     void output_results();
@@ -1775,6 +1780,7 @@ namespace Flexodeal
     void output_gearing_info() const;
     void output_activation_muscle_length();
     void ouput_displacements_at_select_locations() const;
+    void output_bulging_info();
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -4117,6 +4123,7 @@ namespace Flexodeal
     output_gearing_info();
     output_activation_muscle_length();
     ouput_displacements_at_select_locations();
+    output_bulging_info();
 
     timer.leave_subsection();
   }
@@ -4557,7 +4564,6 @@ namespace Flexodeal
       if (cell->center()[0] >= 3.0*parameters.length/8.0 &&
           cell->center()[0] <= 5.0*parameters.length/8.0)
       {
-        
         fe_values.reinit(cell);
 
         const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
@@ -4693,7 +4699,8 @@ namespace Flexodeal
     if (parameters.type_of_simulation != "dynamic")
       return void();
     
-    double mean_muscle_velocity = 0.0, mean_strain_rate = 0.0, volume_slab = 0.0;
+    Tensor<1,dim> mean_muscle_velocity;
+    double mean_strain_rate = 0.0, volume_slab = 0.0;
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4723,10 +4730,7 @@ namespace Flexodeal
           const double det_F = lqph[q_point]->get_det_F();
           const double JxW = fe_values.JxW(q_point);
 
-          // We also decide to output the muscle velocity only in the x component,
-          // since this is the default line of action. If the line of action is changed,
-          // then this quantity must be updated properly.
-          mean_muscle_velocity += muscle_velocity[0] * det_F * JxW;
+          mean_muscle_velocity += muscle_velocity * det_F * JxW;
           mean_strain_rate  += strain_rate * det_F * JxW;
           volume_slab += det_F * JxW;
         }
@@ -4736,8 +4740,6 @@ namespace Flexodeal
     mean_muscle_velocity = mean_muscle_velocity / volume_slab;
     mean_strain_rate = mean_strain_rate / volume_slab;
 
-    // We define the initial fibre length as 
-    // $L_f^0 = \dfrac{H}{\sin (\beta_0)} = \dfrac{H}{a_{0,z}}$
     const double initial_fibre_length = parameters.height / parameters.muscle_fibre_orientation_z;
     const double strain_rate_naught = parameters.max_strain_rate;
 
@@ -4763,21 +4765,34 @@ namespace Flexodeal
     {
       output.open(filename.str());
       output << "Time [s]"
-              << "," << "Mean muscle velocity [m/s]"
+              << "," << "Prescribed velocity x [m/s]"
+              << "," << "Mean muscle velocity x [m/s]"
+              << "," << "Mean muscle velocity y [m/s]"
+              << "," << "Mean muscle velocity z [m/s]"
+              << "," << "Mean muscle velocity norm [m/s]"
               << "," << "Mean fibre strain rate (non-dim)"
               << "," << "Initial fibre length [m]"
               << "," << "Maximum strain rate [1/s]" 
+              << "," << "Mean fibre velocity [m/s]"
               << "," << "Volume slab [m^3]" << "\n";
     }
     else
       output.open(filename.str(), std::ios_base::app);
     
+    double fibre_velocity = mean_strain_rate * initial_fibre_length * strain_rate_naught;
+    double end_velocity = (u_dir(time.current()) - u_dir(time.previous()))/time.get_delta_t();
+
     output << time.current() << std::fixed 
            << std::setprecision(4) << std::scientific
-           << "," << mean_muscle_velocity
+           << "," << end_velocity
+           << "," << mean_muscle_velocity[0]
+           << "," << mean_muscle_velocity[1]
+           << "," << mean_muscle_velocity[2]
+           << "," << mean_muscle_velocity.norm()
            << "," << mean_strain_rate
            << "," << initial_fibre_length
            << "," << strain_rate_naught 
+           << "," << fibre_velocity
            << "," << volume_slab << "\n";
   }
 
@@ -4860,6 +4875,110 @@ namespace Flexodeal
            << "," << u_right[1]
            << "," << u_right[2] 
            << "," << parameters.length << "\n";
+  }
+
+  template <int dim>
+  void Solid<dim>::output_bulging_info()
+  {
+    std::ostringstream filename;
+    filename << save_dir << "/bulging_data-" << dim << "d.csv";
+    std::ofstream output;
+
+    if (time.get_timestep() == 0)
+    {
+      // Set global DOF info and create file
+      bool found_top = false, found_bottom = false,
+          found_left = false, found_right = false,
+          all_points_found = false;
+
+      Point<dim> p_top(parameters.length/2, parameters.width/2, parameters.height);
+      Point<dim> p_bottom(parameters.length/2, parameters.width/2, 0.0);
+      Point<dim> p_left(parameters.length/2, 0.0, parameters.height/2);
+      Point<dim> p_right(parameters.length/2, parameters.width, parameters.height/2);
+      const double tol = 1e-14;
+
+      for (const auto &cell : dof_handler.active_cell_iterators())
+      {
+        if (!all_points_found)
+        {
+          for (const auto vertex : cell->vertex_indices())
+          {
+            if (!found_top)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_top; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_z_top.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_z_top.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_z_top.push_back(cell->vertex_dof_index(vertex,2));
+                found_top = true;
+              }
+            }
+
+            if (!found_bottom)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_bottom; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_z_bottom.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_z_bottom.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_z_bottom.push_back(cell->vertex_dof_index(vertex,2));
+                found_bottom = true;
+              }
+            }
+
+            if (!found_left)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_left; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_y_left.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_y_left.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_y_left.push_back(cell->vertex_dof_index(vertex,2));
+                found_left = true;
+              }
+            }
+
+            if (!found_right)
+            {
+              Point<dim> current_point = cell->vertex(vertex);
+              Tensor<1,dim> diff = current_point - p_right; /* Subtracting two Point<dim> returns a Tensor<1,dim> */
+              if (diff.norm() < tol)
+              {
+                global_dof_index_y_right.push_back(cell->vertex_dof_index(vertex,0));
+                global_dof_index_y_right.push_back(cell->vertex_dof_index(vertex,1));
+                global_dof_index_y_right.push_back(cell->vertex_dof_index(vertex,2));
+                found_left = true;
+              }
+            }
+          }
+
+          all_points_found = found_top && found_bottom && found_left && found_right;
+        }
+        else
+          break;
+      }
+
+      // Create file
+      output.open(filename.str());
+      output << "Time [s]"
+            << "," << "u left [m]"
+            << "," << "u right [m]"
+            << "," << "u top [m]"
+            << "," << "u bottom [m]" << "\n";
+    }
+    else
+      output.open(filename.str(), std::ios_base::app); // Append contents to existing file
+
+    output << time.current() << std::fixed
+           << std::setprecision(8) << std::scientific
+           << "," << solution_n(global_dof_index_y_left[1])
+           << "," << solution_n(global_dof_index_y_right[1])
+           << "," << solution_n(global_dof_index_z_top[2])
+           << "," << solution_n(global_dof_index_z_bottom[2]) << "\n";
   }
   
 } // End of namespace Flexodeal
