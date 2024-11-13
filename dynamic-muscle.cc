@@ -4390,6 +4390,9 @@ namespace Flexodeal
     {
       fe_values.reinit(cell);
 
+      // Get cell quadrature points (QPs)
+      const std::vector<Point<dim>> qp_cell = fe_values.get_quadrature_points();
+
       for (unsigned int face = 0; face < GeometryInfo<dim>::faces_per_cell; ++face)
       {
         if (cell->face(face)->at_boundary())
@@ -4399,21 +4402,38 @@ namespace Flexodeal
               lqph = quadrature_point_history.get_data(cell);
           Assert(lqph.size() == n_q_points, ExcInternalError());
 
+          // Get face QPs
+          const std::vector<Point<dim>> qp_face = fe_face_values.get_quadrature_points();
+
           // Get boundary id
           const unsigned int bdy_id = cell->face(face)->boundary_id();
 
           for (unsigned int f_q_point = 0; f_q_point < n_q_points_f; ++f_q_point)
           {
+            /*-----------------------------------------------------------------*/
+            // Compute distance from the current face QP to all cell QPs
+            std::vector<double> dist_face_qp_cell_qp(n_q_points);
+            for (unsigned int k = 0; k < n_q_points; ++k)
+            {
+              dist_face_qp_cell_qp[k] = qp_face[f_q_point].distance(qp_cell[k]);
+            }
+
+            // Find minimum in dist_face_qp_cell_qp vector
+            auto min_it = std::min_element(dist_face_qp_cell_qp.begin(),
+                                           dist_face_qp_cell_qp.end());
+            unsigned int f_q_point_closest = std::distance(dist_face_qp_cell_qp.begin(),
+                                                           min_it);
+            /*-----------------------------------------------------------------*/
             const Tensor<1, dim> &N = fe_face_values.normal_vector(f_q_point);
             const double JxW        = fe_face_values.JxW(f_q_point);
 
-            const Tensor<2, dim> F_inv              = lqph[f_q_point]->get_F_inv();
-            const Tensor<2, dim> tau                = lqph[f_q_point]->get_tau();
-            const Tensor<2, dim> tau_vol            = lqph[f_q_point]->get_tau_vol();
-            const Tensor<2, dim> tau_iso            = lqph[f_q_point]->get_tau_iso();
-            const Tensor<2, dim> tau_muscle_base    = lqph[f_q_point]->get_tau_iso_muscle_basematerial();
-            const Tensor<2, dim> tau_muscle_passive = lqph[f_q_point]->get_tau_iso_muscle_passive();
-            const Tensor<2, dim> tau_muscle_active  = lqph[f_q_point]->get_tau_iso_muscle_active();
+            const Tensor<2, dim> F_inv              = lqph[f_q_point_closest]->get_F_inv();
+            const Tensor<2, dim> tau                = lqph[f_q_point_closest]->get_tau();
+            const Tensor<2, dim> tau_vol            = lqph[f_q_point_closest]->get_tau_vol();
+            const Tensor<2, dim> tau_iso            = lqph[f_q_point_closest]->get_tau_iso();
+            const Tensor<2, dim> tau_muscle_base    = lqph[f_q_point_closest]->get_tau_iso_muscle_basematerial();
+            const Tensor<2, dim> tau_muscle_passive = lqph[f_q_point_closest]->get_tau_iso_muscle_passive();
+            const Tensor<2, dim> tau_muscle_active  = lqph[f_q_point_closest]->get_tau_iso_muscle_active();
             
             force_total[bdy_id]         += 0.5 * (tau + transpose(tau)) * transpose(F_inv) * N * JxW;
             force_vol[bdy_id]           += 0.5 * (tau_vol + transpose(tau_vol)) * transpose(F_inv) * N * JxW;
