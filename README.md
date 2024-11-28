@@ -12,7 +12,7 @@ This is a library written in C++ meant to be run in Linux and MacOS environments
 
 This code is used to model skeletal muscle in both dynamic and quasi-static experiments, and can include contributions from muscle, aponeurosis, fat, and tendon material. The underlying material properties, numerical algorithms, are described in the following paper:
 
-> Almonacid, J. A., Domínguez-Rivera, S. A., Konno, R. N., Nigam, N., Ross, S. A., Tam, C., & Wakeling, J. M. (2024). A three-dimensional model of skeletal muscle tissues. SIAM Journal on Applied Mathematics, S538-S566.
+* Almonacid, J. A., Domínguez-Rivera, S. A., Konno, R. N., Nigam, N., Ross, S. A., Tam, C., & Wakeling, J. M. (2024). A three-dimensional model of skeletal muscle tissues. SIAM Journal on Applied Mathematics, S538-S566. [https://doi.org/10.1137/22M1506985](https://doi.org/10.1137/22M1506985)
 
 This coding framework has been used in the following studies:
 
