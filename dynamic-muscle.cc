@@ -1757,7 +1757,7 @@ namespace Flexodeal
     void output_stresses() const;
     void output_gearing_info() const;
     void output_activation_muscle_length();
-    void ouput_displacements_at_select_locations() const;
+    void output_displacement_at_select_locations() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -4098,7 +4098,7 @@ namespace Flexodeal
     output_stresses();
     output_gearing_info();
     output_activation_muscle_length();
-    ouput_displacements_at_select_locations();
+    output_displacement_at_select_locations();
 
     timer.leave_subsection();
   }
@@ -4825,7 +4825,7 @@ namespace Flexodeal
   // anywhere in the geometry. The only requirement is that they MUST be
   // vertices of the current mesh. 
   template <int dim>
-  void Solid<dim>::ouput_displacements_at_select_locations() const
+  void Solid<dim>::output_displacement_at_select_locations() const
   {
     std::ostringstream filename;
     filename << save_dir << "/displacements-" << dim << "d.csv";
