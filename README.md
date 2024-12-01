@@ -51,23 +51,23 @@ In an Intel i5-9600K (3.70 GHz x 6) machine the code with its default settings (
 ## Latest line count (in main branch)
 
 ```
-Wed 13 Nov 2024 03:21:06 PM PST
+Sun 01 Dec 2024 01:08:52 PM PST
 
 >> cloc --exclude-dir=.vscode --exclude-lang=JSON,XML,make .
     
-    9 text files.
-    9 unique files.                              
-    7 files ignored.
+    10 text files.
+    10 unique files.                              
+    8 files ignored.
 
-github.com/AlDanial/cloc v 1.90  T=0.02 s (198.1 files/s, 340860.2 lines/s)
+github.com/AlDanial/cloc v 1.90  T=0.02 s (194.8 files/s, 327488.3 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-C++                              1            710           1084           3282
-Markdown                         1             14              0             34
+C++                              1            693           1110           3129
+Markdown                         1             27              0             46
 CMake                            1              6             15             18
 -------------------------------------------------------------------------------
-SUM:                             3            730           1099           3334
+SUM:                             3            726           1125           3193
 -------------------------------------------------------------------------------
 
 ```
