@@ -1014,7 +1014,7 @@ namespace Flexodeal
 
     double get_strain_rate() const
     {
-      return std::pow(det_F, 1/3) * (strain_rate_bar + (1.0/dim) * (trace_d/strain_rate_naught) * stretch_bar);
+      return std::pow(det_F, -1/3) * (strain_rate_bar + (1.0/dim) * (trace_d/strain_rate_naught) * stretch_bar);
     }
 
     double get_strain_rate_bar() const
@@ -1173,7 +1173,7 @@ namespace Flexodeal
         third_term  =   (1 / std::pow( stretch_bar ,3))
                       * sigma_naught_muscle
                       * activation_level
-                      * get_length_stress() * get_dstrain_rate_stress_dstrain_rate() * (1.0 / delta_t);
+                      * get_length_stress() * get_dstrain_rate_stress_dstrain_rate() * (1.0 / (strain_rate_naught * delta_t));
       }
 
       return (first_term + second_term + third_term) * 
@@ -1758,6 +1758,7 @@ namespace Flexodeal
     void output_gearing_info() const;
     void output_activation_muscle_length();
     void output_displacement_at_select_locations() const;
+    void output_cell_data_main_variables() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -4099,6 +4100,7 @@ namespace Flexodeal
     output_gearing_info();
     output_activation_muscle_length();
     output_displacement_at_select_locations();
+    output_cell_data_main_variables();
 
     timer.leave_subsection();
   }
@@ -4857,6 +4859,107 @@ namespace Flexodeal
     }
     output << "\n";
   }
+
+  // @sect4{Output cell data (main variables)}
+  template <int dim>
+  void Solid<dim>::output_cell_data_main_variables() const
+  {
+    std::ostringstream filename;
+    filename << save_dir << "/cell_data_main-" << dim << "d-" 
+            << std::setfill('0') << std::setw(3) << time.get_timestep() << ".csv";
+    std::ofstream output(filename.str().c_str());
+
+    output << "qp_x"
+           << "," << "qp_y"
+           << "," << "qp_z"
+           << "," << "JxW"
+           << "," << "det_F"
+           << "," << "u1"
+           << "," << "u2"
+           << "," << "u3"
+           << "," << "v1"
+           << "," << "v2"
+           << "," << "v3"
+           << "," << "p"
+           << "," << "D"
+           << "," << "stretch"
+           << "," << "stretch_bar"
+           << "," << "strain_rate"
+           << "," << "strain_rate_bar"
+           << "," << "orientation_x"
+           << "," << "orientation_y"
+           << "," << "orientation_z"
+           << "\n";
+
+    FEValues<dim> fe_values(fe, qf_cell,
+                            update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+
+      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+          quadrature_point_history.get_data(cell);
+      Assert(lqph.size() == n_q_points, ExcInternalError());
+
+      const std::vector<Point<dim>> qp = fe_values.get_quadrature_points();
+
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      {
+        float qp_x = qp[q_point][0];
+        float qp_y = qp[q_point][1];
+        float qp_z = qp[q_point][2];
+        float JxW = fe_values.JxW(q_point);
+        float det_F = lqph[q_point]->get_det_F();
+        const Tensor<1,dim> displacement_current = lqph[q_point]->get_displacement();
+        float u1 = displacement_current[0];
+        float u2 = displacement_current[1];
+        float u3 = displacement_current[2];
+        // At this point, after solving the nonlinear system and before going into the next time step,
+        // the variable velocity_previous contains the information of the *current* velocity,
+        // so it is safe to call this variable velocity_current in this context.
+        const Tensor<1, dim> velocity_current = lqph[q_point]->get_velocity_previous();
+        float v1 = velocity_current[0];
+        float v2 = velocity_current[1];
+        float v3 = velocity_current[2];
+        float p = lqph[q_point]->get_p_tilde();
+        float D = lqph[q_point]->get_J_tilde();
+        float stretch = lqph[q_point]->get_stretch();
+        float stretch_bar = lqph[q_point]->get_stretch_bar();
+        float strain_rate = lqph[q_point]->get_strain_rate();
+        float strain_rate_bar = lqph[q_point]->get_strain_rate_bar();
+        const Tensor<1,dim> orientation = lqph[q_point]->get_orientation();
+        float orientation_x = orientation[0];
+        float orientation_y = orientation[1];
+        float orientation_z = orientation[2];
+
+        output << std::fixed << std::setprecision(4) << std::scientific
+               << qp_x
+               << "," << qp_y
+               << "," << qp_z
+               << "," << JxW
+               << "," << det_F
+               << "," << u1
+               << "," << u2
+               << "," << u3
+               << "," << v1
+               << "," << v2
+               << "," << v3
+               << "," << p
+               << "," << D
+               << "," << stretch
+               << "," << stretch_bar
+               << "," << strain_rate
+               << "," << strain_rate_bar
+               << "," << orientation_x
+               << "," << orientation_y
+               << "," << orientation_z
+               << "\n";
+      }
+    }
+  }
+
 } // End of namespace Flexodeal
 
 

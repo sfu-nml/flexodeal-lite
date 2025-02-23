@@ -12,13 +12,13 @@ subsection Finite element system
   set Quadrature order  = 5
 
   # Type of simulation (dynamic or quasi-static)
-  set Type of simulation = dynamic
+  set Type of simulation = quasi-static
 end
 
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 2
+  set Global refinement   = 3
 
    # Length of the muscle block [m]
   set Length = 0.03
@@ -62,7 +62,7 @@ subsection Linear solver
   # Small problems (Grid refinement level 1 or 2) can usually be solved
   # using the Direct (UMFPACK) solver without issues. However, for larger
   # problems, a CG solver with a Jacobi preconditioner is recommended.
-  set Solver type              = Direct
+  set Solver type              = CG
 end
 
 
@@ -127,7 +127,7 @@ subsection Time
   # End time [s]
   # To obtain data for the very last time step, add 1e-08 to
   # the desired end time
-  set End time       = 0.50000001
+  set End time       = 0.20000001
 
   # Time step size [s]
   set Time step size = 0.025
