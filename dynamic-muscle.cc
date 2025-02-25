@@ -1759,6 +1759,7 @@ namespace Flexodeal
     void output_activation_muscle_length();
     void output_displacement_at_select_locations() const;
     void output_cell_data_main_variables() const;
+    void output_cell_data_tensors() const;
 
     // Finally, some member variables that describe the current state: A
     // collection of the parameters used to describe the problem setup...
@@ -4101,6 +4102,7 @@ namespace Flexodeal
     output_activation_muscle_length();
     output_displacement_at_select_locations();
     output_cell_data_main_variables();
+    output_cell_data_tensors();
 
     timer.leave_subsection();
   }
@@ -4866,30 +4868,8 @@ namespace Flexodeal
   {
     std::ostringstream filename;
     filename << save_dir << "/cell_data_main-" << dim << "d-" 
-            << std::setfill('0') << std::setw(3) << time.get_timestep() << ".csv";
-    std::ofstream output(filename.str().c_str());
-
-    output << "qp_x"
-           << "," << "qp_y"
-           << "," << "qp_z"
-           << "," << "JxW"
-           << "," << "det_F"
-           << "," << "u1"
-           << "," << "u2"
-           << "," << "u3"
-           << "," << "v1"
-           << "," << "v2"
-           << "," << "v3"
-           << "," << "p"
-           << "," << "D"
-           << "," << "stretch"
-           << "," << "stretch_bar"
-           << "," << "strain_rate"
-           << "," << "strain_rate_bar"
-           << "," << "orientation_x"
-           << "," << "orientation_y"
-           << "," << "orientation_z"
-           << "\n";
+            << std::setfill('0') << std::setw(3) << time.get_timestep() << ".data";
+    std::ofstream output(filename.str().c_str(), std::ios::out | std::ios::binary);
 
     FEValues<dim> fe_values(fe, qf_cell,
                             update_values | update_gradients |
@@ -4933,31 +4913,142 @@ namespace Flexodeal
         float orientation_x = orientation[0];
         float orientation_y = orientation[1];
         float orientation_z = orientation[2];
+        
+        float output_matrix[20] = {qp_x, qp_y, qp_z, JxW, det_F,
+                                   u1, u2, u3, v1, v2, v3, p, D,
+                                   stretch, stretch_bar, strain_rate, strain_rate_bar,
+                                   orientation_x, orientation_y, orientation_z};
 
-        output << std::fixed << std::setprecision(4) << std::scientific
-               << qp_x
-               << "," << qp_y
-               << "," << qp_z
-               << "," << JxW
-               << "," << det_F
-               << "," << u1
-               << "," << u2
-               << "," << u3
-               << "," << v1
-               << "," << v2
-               << "," << v3
-               << "," << p
-               << "," << D
-               << "," << stretch
-               << "," << stretch_bar
-               << "," << strain_rate
-               << "," << strain_rate_bar
-               << "," << orientation_x
-               << "," << orientation_y
-               << "," << orientation_z
-               << "\n";
+        output.write((char*)&output_matrix, sizeof(output_matrix)); 
       }
     }
+
+    output.close();
+  }
+
+  // @sect4{Output cell data (tensors)}
+  template <int dim>
+  void Solid<dim>::output_cell_data_tensors() const
+  {
+    std::ostringstream filename;
+    filename << save_dir << "/cell_data_tensors-" << dim << "d-" 
+            << std::setfill('0') << std::setw(3) << time.get_timestep() << ".data";
+    std::ofstream output(filename.str().c_str(), std::ios::out | std::ios::binary);
+
+    FEValues<dim> fe_values(fe, qf_cell,
+                            update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+    
+    for (const auto &cell : triangulation.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+
+      const std::vector<std::shared_ptr<const PointHistory<dim> > > lqph =
+          quadrature_point_history.get_data(cell);
+      Assert(lqph.size() == n_q_points, ExcInternalError());
+
+      const std::vector<Point<dim>> qp = fe_values.get_quadrature_points();
+
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
+      {
+        float qp_x = qp[q_point][0];
+        float qp_y = qp[q_point][1];
+        float qp_z = qp[q_point][2];
+        float JxW = fe_values.JxW(q_point);
+        float det_F = lqph[q_point]->get_det_F();
+        // Deformation tensor
+        Tensor<2, dim> F_inv = lqph[q_point]->get_F_inv();
+        const Tensor <2, dim> F = invert(F_inv);
+        float F_1_1 = F[0][0];
+        float F_1_2 = F[0][1];
+        float F_1_3 = F[0][2];
+        float F_2_1 = F[1][0];
+        float F_2_2 = F[1][1];
+        float F_2_3 = F[1][2];
+        float F_3_1 = F[2][0];
+        float F_3_2 = F[2][1];
+        float F_3_3 = F[2][2];
+        // Kirchhoff stress (total)
+        const SymmetricTensor<2, dim> tau = lqph[q_point]->get_tau();
+        float tau_1_1 = tau[0][0];
+        float tau_1_2 = tau[0][1];
+        float tau_1_3 = tau[0][2];
+        float tau_2_1 = tau[1][0];
+        float tau_2_2 = tau[1][1];
+        float tau_2_3 = tau[1][2];
+        float tau_3_1 = tau[2][0];
+        float tau_3_2 = tau[2][1];
+        float tau_3_3 = tau[2][2];
+        // Kirchhoff stress (volumetric)
+        const SymmetricTensor<2, dim> tau_vol = lqph[q_point]->get_tau_vol();
+        float tau_vol_1_1 = tau_vol[0][0];
+        float tau_vol_1_2 = tau_vol[0][1];
+        float tau_vol_1_3 = tau_vol[0][2];
+        float tau_vol_2_1 = tau_vol[1][0];
+        float tau_vol_2_2 = tau_vol[1][1];
+        float tau_vol_2_3 = tau_vol[1][2];
+        float tau_vol_3_1 = tau_vol[2][0];
+        float tau_vol_3_2 = tau_vol[2][1];
+        float tau_vol_3_3 = tau_vol[2][2];
+        // Kirchhoff stress (isochoric)
+        const SymmetricTensor<2, dim> tau_iso = lqph[q_point]->get_tau_iso();
+        float tau_iso_1_1 = tau_iso[0][0];
+        float tau_iso_1_2 = tau_iso[0][1];
+        float tau_iso_1_3 = tau_iso[0][2];
+        float tau_iso_2_1 = tau_iso[1][0];
+        float tau_iso_2_2 = tau_iso[1][1];
+        float tau_iso_2_3 = tau_iso[1][2];
+        float tau_iso_3_1 = tau_iso[2][0];
+        float tau_iso_3_2 = tau_iso[2][1];
+        float tau_iso_3_3 = tau_iso[2][2];
+        // Kirchhoff stress (muscle, active)
+        const SymmetricTensor<2, dim> tau_muscle_active = lqph[q_point]->get_tau_iso_muscle_active();
+        float tau_muscle_active_1_1 = tau_muscle_active[0][0];
+        float tau_muscle_active_1_2 = tau_muscle_active[0][1];
+        float tau_muscle_active_1_3 = tau_muscle_active[0][2];
+        float tau_muscle_active_2_1 = tau_muscle_active[1][0];
+        float tau_muscle_active_2_2 = tau_muscle_active[1][1];
+        float tau_muscle_active_2_3 = tau_muscle_active[1][2];
+        float tau_muscle_active_3_1 = tau_muscle_active[2][0];
+        float tau_muscle_active_3_2 = tau_muscle_active[2][1];
+        float tau_muscle_active_3_3 = tau_muscle_active[2][2];
+        // Kirchhoff stress (muscle, passive)
+        const SymmetricTensor<2, dim> tau_muscle_passive = lqph[q_point]->get_tau_iso_muscle_passive();
+        float tau_muscle_passive_1_1 = tau_muscle_passive[0][0];
+        float tau_muscle_passive_1_2 = tau_muscle_passive[0][1];
+        float tau_muscle_passive_1_3 = tau_muscle_passive[0][2];
+        float tau_muscle_passive_2_1 = tau_muscle_passive[1][0];
+        float tau_muscle_passive_2_2 = tau_muscle_passive[1][1];
+        float tau_muscle_passive_2_3 = tau_muscle_passive[1][2];
+        float tau_muscle_passive_3_1 = tau_muscle_passive[2][0];
+        float tau_muscle_passive_3_2 = tau_muscle_passive[2][1];
+        float tau_muscle_passive_3_3 = tau_muscle_passive[2][2];
+        // Kirchhofff stress (muscle, base material)
+        const SymmetricTensor<2, dim> tau_muscle_base = lqph[q_point]->get_tau_iso_muscle_basematerial();
+        float tau_muscle_base_1_1 = tau_muscle_base[0][0];
+        float tau_muscle_base_1_2 = tau_muscle_base[0][1];
+        float tau_muscle_base_1_3 = tau_muscle_base[0][2];
+        float tau_muscle_base_2_1 = tau_muscle_base[1][0];
+        float tau_muscle_base_2_2 = tau_muscle_base[1][1];
+        float tau_muscle_base_2_3 = tau_muscle_base[1][2];
+        float tau_muscle_base_3_1 = tau_muscle_base[2][0];
+        float tau_muscle_base_3_2 = tau_muscle_base[2][1];
+        float tau_muscle_base_3_3 = tau_muscle_base[2][2];
+        
+        float output_matrix[68] ={qp_x, qp_y, qp_z, JxW, det_F,
+                                  F_1_1, F_1_2, F_1_3, F_2_1, F_2_2, F_2_3, F_3_1, F_3_2, F_3_3,
+                                  tau_1_1, tau_1_2, tau_1_3, tau_2_1, tau_2_2, tau_2_3, tau_3_1, tau_3_2, tau_3_3,
+                                  tau_vol_1_1, tau_vol_1_2, tau_vol_1_3, tau_vol_2_1, tau_vol_2_2, tau_vol_2_3, tau_vol_3_1, tau_vol_3_2, tau_vol_3_3,
+                                  tau_iso_1_1, tau_iso_1_2, tau_iso_1_3, tau_iso_2_1, tau_iso_2_2, tau_iso_2_3, tau_iso_3_1, tau_iso_3_2, tau_iso_3_3,
+                                  tau_muscle_active_1_1, tau_muscle_active_1_2, tau_muscle_active_1_3, tau_muscle_active_2_1, tau_muscle_active_2_2, tau_muscle_active_2_3, tau_muscle_active_3_1, tau_muscle_active_3_2, tau_muscle_active_3_3,
+                                  tau_muscle_passive_1_1, tau_muscle_passive_1_2, tau_muscle_passive_1_3, tau_muscle_passive_2_1, tau_muscle_passive_2_2, tau_muscle_passive_2_3, tau_muscle_passive_3_1, tau_muscle_passive_3_2, tau_muscle_passive_3_3,
+                                  tau_muscle_base_1_1, tau_muscle_base_1_2, tau_muscle_base_1_3, tau_muscle_base_2_1, tau_muscle_base_2_2, tau_muscle_base_2_3, tau_muscle_base_3_1, tau_muscle_base_3_2, tau_muscle_base_3_3};
+
+        output.write((char*)&output_matrix, sizeof(output_matrix));
+      }
+    }
+
+    output.close();
   }
 
 } // End of namespace Flexodeal
