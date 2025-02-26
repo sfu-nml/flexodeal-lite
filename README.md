@@ -48,10 +48,77 @@ This coding framework has been used in the following studies:
 
 In an Intel i5-9600K (3.70 GHz x 6) machine the code with its default settings (dynamic) takes about 4 minutes to complete 500 ms of simulation. In turn, the quasi-static code (`set Type of simulation = quasi-static`) takes only 18 seconds! That speaks volumes about the nonlinearity of the dynamic problem.
 
+## Binary files: what they are and how to read them
+
+A binary file is a file that contains data in a format that is not directly readable by humans. Unlike text files, which store data as plain text (ASCII or Unicode), binary files store data in raw binary format, which is optimized for computer processing rather than human readability.
+
+Each of these files (which are written at each time step) contains a two-dimensional array (number of quadrature points) x (number of columns),
+where each column represents a different quantity of interest and each row is a different quadrature point.
+
+Since these are rather large files, these are **not** output by default. To export these files, set in `parameters.prm`:
+```
+subsection Output binary files
+    set Output binary files main variables = true
+    set Output binary files tensors = true
+end
+```
+
+The first type of files exports binary files named `cell_data_main-3d-XYZ.data`, where XYZ is the time step. Each one of these files contains the following columns (20 in total):
+1. `qp_x` (X component of the quadrature point in the reference configuration)
+2. `qp_y` (Y component of the quadrature point in the reference configuration)
+3. `qp_z` (Z component of the quadrature point in the reference configuration)
+4. `JxW` (dilation J x quadrature point weight)
+5. `det_F` (determinant of the deformation tensor)
+6. `u1` (First component of current displacement)
+7. `u2` (Second component of current displacement)
+8. `u3` (Third component of current displacement)
+9. `v1` (First component of current velocity)
+10. `v2` (Second component of current velocity)
+11. `v3` (Third component of current velocity)
+12. `p` (Current pressure)
+13. `D` (Current dilation)
+14. `stretch` (Fibre stretch)
+15. `stretch_bar` (Fibre stretch, isochoric component)
+16. `strain_rate` (Fibre strain rate, normalized)
+17. `strain_rate_bar` (Fibre strain rate, normalized, isochoric component)
+18. `orientation_x` (X component of current fibre orientation)
+19. `orientation_y` (Y component of current fibre orientation)
+20. `orientation_z` (Z component of current fibre orientation)
+
+The second type of files are named `cell_data_tensors-3d-XYZ.data` and contains the following columns (see the comments in the parameter file to view the exact name of each column, 68 columns in total):
+- Column 1: `qp_x`
+- Column 2: `qp_y`
+- Column 3: `qp_z`
+- Column 4: `Jxw`
+- Column 5: `det_F`
+- Columns 6-14: `F_i_j`, the (i,j) component of the deformation tensor `F`
+- Columns 15-23: `tau_i_j`, the (i,j) component of the Kirchhoff stress `tau`
+- Columns 24-32: `tau_vol_i_j`, the (i,j) component of `tau_vol`
+- Columns 33-41: `tau_iso_i_j`, the (i,j) component of `tau_iso`
+- Columns 42-50: `tau_muscle_active_i_j`, the (i,j) component of `tau_muscle_active`
+- Columns 51-59: `tau_muscle_passive_i_j`, the (i,j) component of `tau_muscle_active`
+- Columns 60-68: `tau_muscle_base_i_j`, the (i,j) component of `tau_muscle_base`
+
+To read these files in Matlab, use the following function:
+```
+function df = read_binary(filename, ncols)
+% READ_BINARY Transforms a the contents of a binary file into a matrix
+%
+% df = read_binary(filename, cols) reads the file "filename" assuming that
+% it will find a vector of "float32" numbers. Assuming this vector has N
+% elements, the array is then reshaped to a N/ncols x ncols matrix, where
+% ncols is the number of columns the array is expected to have.
+
+fid = fopen(filename);
+df = fread(fid,Inf,"float32");
+df = reshape(df', ncols, length(df)/ncols)';
+fclose(fid);
+```
+
 ## Latest line count (in main branch)
 
 ```
-Sun 01 Dec 2024 01:08:52 PM PST
+Tue 25 Feb 2025 07:03:51 PM PST
 
 >> cloc --exclude-dir=.vscode --exclude-lang=JSON,XML,make .
     
@@ -59,15 +126,15 @@ Sun 01 Dec 2024 01:08:52 PM PST
     10 unique files.                              
     8 files ignored.
 
-github.com/AlDanial/cloc v 1.90  T=0.02 s (194.8 files/s, 327488.3 lines/s)
+github.com/AlDanial/cloc v 1.90  T=0.02 s (181.2 files/s, 323568.2 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-C++                              1            693           1110           3129
-Markdown                         1             27              0             46
+C++                              1            720           1127           3329
+Markdown                         1             36              0            105
 CMake                            1              6             15             18
 -------------------------------------------------------------------------------
-SUM:                             3            726           1125           3193
+SUM:                             3            762           1142           3452
 -------------------------------------------------------------------------------
 
 ```
