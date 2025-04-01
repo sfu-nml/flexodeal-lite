@@ -118,7 +118,7 @@ fclose(fid);
 ## Latest line count (in main branch)
 
 ```
-Tue 25 Feb 2025 07:03:51 PM PST
+Tue 01 Apr 2025 01:15:09 PM PDT
 
 >> cloc --exclude-dir=.vscode --exclude-lang=JSON,XML,make .
     
@@ -126,15 +126,15 @@ Tue 25 Feb 2025 07:03:51 PM PST
     10 unique files.                              
     8 files ignored.
 
-github.com/AlDanial/cloc v 1.90  T=0.02 s (181.2 files/s, 323568.2 lines/s)
+github.com/AlDanial/cloc v 1.90  T=0.02 s (182.4 files/s, 333657.2 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-C++                              1            720           1127           3329
-Markdown                         1             36              0            105
+C++                              1            738           1152           3419
+Markdown                         1             35              0            105
 CMake                            1              6             15             18
 -------------------------------------------------------------------------------
-SUM:                             3            762           1142           3452
+SUM:                             3            779           1167           3542
 -------------------------------------------------------------------------------
 
 ```
