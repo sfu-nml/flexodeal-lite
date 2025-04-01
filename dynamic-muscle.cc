@@ -4487,9 +4487,9 @@ namespace Flexodeal
               << "Internal energy:" << "\t" << energy_int / current_volume << "\n"
               << "Vol energy:" << "\t\t" << energy_vol / current_volume << "\n"
               << "Iso energy:" << "\t\t" << energy_iso / current_volume << "\n"
-              << "Musclebase energy:" << "\t" << energy_muscle_active / current_volume << "\n"
+              << "Musclebase energy:" << "\t" << energy_muscle_base / current_volume << "\n"
               << "Musclepassive energy:" << "\t" << energy_muscle_passive / current_volume << "\n"
-              << "Muscleactive energy:" << "\t" << energy_muscle_base / current_volume << "\n"
+              << "Muscleactive energy:" << "\t" << energy_muscle_active / current_volume << "\n"
               << std::endl;
 
     // Output time series as a CSV file.
