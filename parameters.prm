@@ -18,7 +18,7 @@ end
 
 subsection Geometry
   # Global refinement level
-  set Global refinement   = 2
+  set Global refinement   = 3
 
    # Length of the muscle block [m]
   set Length = 0.03
