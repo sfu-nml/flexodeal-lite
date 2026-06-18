@@ -96,6 +96,21 @@ subsection Materials
   set Muscle base material constant 1 = 0.1990559575103343
 	set Muscle base material constant 2 = 0.3662334826469149
 	set Muscle base material constant 3 = 0.0
+
+  # ---------------------- Fat properties ------------------------
+
+  # Bulk modulus fat [Pa]
+  set Bulk modulus fat = 0.25e+07
+
+  # Fat "fudge" factor [nondimensional].
+  # Ideally this should be 1.
+  set Fat factor = 1.0
+
+  # Constants in Neo-Hookean strain-energy function
+  set Fat constant 1 = 0.13e+06
+
+  # Fat fraction
+  set Fat fraction = 0.0
 end
 
 

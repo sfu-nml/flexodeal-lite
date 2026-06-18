@@ -252,6 +252,12 @@ namespace Flexodeal
       double muscle_basemat_c2;
       double muscle_basemat_c3;
 
+      // Intramuscular fat properties
+      double kappa_fat;
+      double fat_factor;
+      double fat_c1;
+      double fat_fraction;
+
       static void
       declare_parameters(ParameterHandler &prm);
 
@@ -312,6 +318,23 @@ namespace Flexodeal
         prm.declare_entry("Muscle base material constant 3", "0.0",
                           Patterns::Double(),
                           "Muscle base material constant 3");
+
+        // Intramuscular fat properties
+        prm.declare_entry("Bulk modulus fat", "0.25e+06",
+                          Patterns::Double(),
+                          "Bulk modulus fat");
+
+        prm.declare_entry("Fat factor", "1.0",
+                          Patterns::Double(),
+                          "Fat fudge factor");
+
+        prm.declare_entry("Fat constant 1", "0.13e+06",
+                          Patterns::Double(),
+                          "Fat constant 1 in Neo-Hookean SEF");
+
+        prm.declare_entry("Fat fraction", "0.00",
+                          Patterns::Double(),
+                         "Intramuscular fat fraction");
       }
       prm.leave_subsection();
     }
@@ -334,6 +357,11 @@ namespace Flexodeal
         muscle_basemat_c1 = prm.get_double("Muscle base material constant 1"); 
         muscle_basemat_c2 = prm.get_double("Muscle base material constant 2"); 
         muscle_basemat_c3 = prm.get_double("Muscle base material constant 3"); 
+
+        kappa_fat  = prm.get_double("Bulk modulus fat");
+        fat_factor = prm.get_double("Fat factor");
+        fat_c1     = prm.get_double("Fat constant 1");
+        fat_fraction = prm.get_double("Fat fraction");
       }
       prm.leave_subsection();
     }
@@ -923,6 +951,7 @@ namespace Flexodeal
     Muscle_Tissues_Three_Field(const std::string type_contraction,
                                const double max_iso_stress_muscle,
                                const double kappa_muscle,
+                               const double kappa_fat,
                                const double max_strain_rate,
                                const double initial_fibre_orientation_x,
                                const double initial_fibre_orientation_y,
@@ -931,11 +960,14 @@ namespace Flexodeal
                                const double muscle_basematerial_factor,
                                const double muscle_basemat_c1,
                                const double muscle_basemat_c2,
-                               const double muscle_basemat_c3)
+                               const double muscle_basemat_c3,
+                               const double fat_factor,
+                               const double fat_c1,
+                               const double fat_fraction)
       :
       type_of_contraction(type_contraction),
       sigma_naught_muscle(max_iso_stress_muscle),
-      kappa_muscle(kappa_muscle),
+      kappa_muscle((1 - fat_fraction) * kappa_muscle + fat_fraction * kappa_fat),
       strain_rate_naught(max_strain_rate),
       initial_fibre_orientation({initial_fibre_orientation_x, 
                                  initial_fibre_orientation_y, 
@@ -945,6 +977,9 @@ namespace Flexodeal
       c1_basematerial_muscle(muscle_basemat_c1),
       c2_basematerial_muscle(muscle_basemat_c2),
       c3_basematerial_muscle(muscle_basemat_c3),
+      s_base_fat(fat_factor),
+      c1_fat(fat_c1),
+      fat_fraction(fat_fraction),
       /* Physiological variables */
       stretch_bar(1.0),
       strain_rate_bar(0.0),
@@ -1129,6 +1164,9 @@ namespace Flexodeal
     const double            c1_basematerial_muscle;
     const double            c2_basematerial_muscle;
     const double            c3_basematerial_muscle;
+    const double            s_base_fat;
+    const double            c1_fat;
+    const double            fat_fraction;
 
     // Define physiological variables needed to evaluate the 
     // constitutive models
@@ -1152,7 +1190,12 @@ namespace Flexodeal
     // $\overline{\boldsymbol{\tau}}$:
     SymmetricTensor<2, dim> get_tau_bar() const
     {
-      return get_tau_muscle_active_bar() + get_tau_muscle_passive_bar() + get_tau_muscle_basematerial_bar();
+      // The homogenization follows Model M4 in:
+      // Rahemi H, Nigam N, Wakeling, JM. 2015 The effect of intramuscular 
+      // fat on skeletal muscle mechanics: implications for the elderly and obese.
+      // J. R. Soc. Interface 12: 20150365 http://dx.doi.org/10.1098/rsif.2015.0365
+      return (1 - fat_fraction) * (get_tau_muscle_active_bar() + get_tau_muscle_passive_bar() + get_tau_muscle_basematerial_bar()) 
+          + fat_fraction * get_tau_fat_bar();
     }
 
     // Determine the contributions from active and passive muscle fibres,
@@ -1183,6 +1226,11 @@ namespace Flexodeal
       return 2 * s_base_muscle * sigma_naught_basematerial * 
             (3 * c3_basematerial_muscle * std::pow(trace_b_bar - 3,2)
            + 2 * c2_basematerial_muscle * (trace_b_bar - 3) + c1_basematerial_muscle) * b_bar;
+    }
+
+    SymmetricTensor<2, dim> get_tau_fat_bar() const
+    {
+      return 2 * s_base_fat * c1_fat * b_bar;
     }
 
     // Calculate the volumetric part of the tangent $J
@@ -1221,7 +1269,8 @@ namespace Flexodeal
     // to the tangent matrix.
     SymmetricTensor<4, dim> get_c_bar() const
     {
-      return get_c_muscle_active_bar() + get_c_muscle_passive_bar() + get_c_muscle_basematerial_bar();
+      return (1 - fat_fraction) * (get_c_muscle_active_bar() + get_c_muscle_passive_bar() + get_c_muscle_basematerial_bar())
+          + fat_fraction * get_c_fat_bar();
     }
 
     SymmetricTensor<4, dim> get_c_muscle_active_bar() const
@@ -1291,6 +1340,13 @@ namespace Flexodeal
       return 4 * sigma_naught_basematerial * s_base_muscle * 
             (6 * c3_basematerial_muscle * (trace_b_bar - 3)
            + 2 * c2_basematerial_muscle) * outer_product(b_bar,b_bar);
+    }
+
+    SymmetricTensor<4, dim> get_c_fat_bar() const
+    {
+      // get_tau_fat_bar() is derived from a Neo-Hookean SEF, hence,
+      // this is just the zero tensor
+      return SymmetricTensor<4, dim>();
     }
 
     // Finally, we define the stress relationships of muscle,
@@ -1456,6 +1512,7 @@ namespace Flexodeal
           parameters.type_of_simulation,
           parameters.max_iso_stress_muscle,
           parameters.kappa_muscle,
+          parameters.kappa_fat,
           parameters.max_strain_rate,
           parameters.muscle_fibre_orientation_x,
           parameters.muscle_fibre_orientation_y,
@@ -1464,7 +1521,10 @@ namespace Flexodeal
           parameters.muscle_basematerial_factor,
           parameters.muscle_basemat_c1,
           parameters.muscle_basemat_c2,
-          parameters.muscle_basemat_c3);
+          parameters.muscle_basemat_c3,
+          parameters.fat_factor,
+          parameters.fat_c1,
+          parameters.fat_fraction);
       
       update_values(Tensor<1,dim>(),    /*Displacement*/
                     Tensor<2,dim>(),    /*Gradient of displacement*/
