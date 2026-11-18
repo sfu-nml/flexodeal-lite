@@ -3004,23 +3004,47 @@ namespace Flexodeal
           // S. Pollock and H. Schwartz. Benchmarking results for the Newton-Anderson method.
           // Results in Applied Mathematics 8 (2020), 100095. 
           // https://doi.org/10.1016/j.rinam.2020.100095
-          if (newton_iteration == 0)
+          if (newton_iteration <= 1)
           {
-            // Usual Newton update for the very first iteration
+            // Usual Newton update for the first two iterations. The update
+            // at iteration 0 is computed with the non-homogeneous Dirichlet
+            // constraints (it carries the boundary increment), so it is not
+            // a step of the same fixed-point map as the following ones and
+            // must not enter the Anderson history: mixing it in gives
+            // gamma ~ 1 at iteration 1 and an (almost) zero step.
+            // The history therefore starts at iteration 1.
+            solution_k_previous = solution_n + solution_delta;
             solution_delta += newton_update;
             solution_k = solution_n + solution_delta;
             newton_update_previous = newton_update;
           }
           else
           {
-            // Now use the different direction
+            // Mix the last two Newton proposals x_k + w_k and x_{k-1} + w_{k-1}:
+            //   gamma   = w_k . (w_k - w_{k-1}) / |w_k - w_{k-1}|^2
+            //   x_{k+1} = (1 - gamma) (x_k + w_k) + gamma (x_{k-1} + w_{k-1})
             const BlockVector<double> newton_delta = newton_update - newton_update_previous;
-            const double gamma_update = (newton_update * newton_delta)
-                                            / (newton_delta * newton_delta);
+            const double newton_delta_sq = newton_delta * newton_delta;
+
+            // If two consecutive Newton updates (nearly) coincide, gamma is
+            // undefined or meaningless, so we fall back to a plain Newton
+            // step (gamma = 0).
+            const double threshold =
+              1.0e-12 * std::max(newton_update * newton_update,
+                                 newton_update_previous * newton_update_previous);
+            const double gamma_update =
+              (newton_delta_sq > threshold) ?
+                (newton_update * newton_delta) / newton_delta_sq :
+                0.0;
+
+            // x_k must be kept before it is overwritten, since it becomes
+            // x_{k-1} in the next iteration.
+            const BlockVector<double> solution_k_current = solution_k;
             solution_k = (1-gamma_update) * (solution_k + newton_update) + gamma_update * (solution_k_previous + newton_update_previous);
             solution_delta = solution_k - solution_n;
+
             // Update previous variables
-            solution_k_previous = solution_k;
+            solution_k_previous = solution_k_current;
             newton_update_previous = newton_update;
           }
         }
@@ -3787,6 +3811,12 @@ namespace Flexodeal
   {
     unsigned int lin_it  = 0;
     double       lin_res = 0.0;
+
+    // Start every linear solve from a zero initial guess. Otherwise the
+    // iterative solvers (CG/GMRES) in the static condensation branch would
+    // start from the previous Newton update, which at the first iteration
+    // also carries the Dirichlet increment on the constrained DOFs.
+    newton_update = 0.0;
 
     if (parameters.use_static_condensation == true)
       {
