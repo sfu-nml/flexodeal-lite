@@ -466,10 +466,16 @@ namespace Flexodeal
     // @sect4{Time}
 
     // Set the timestep size $ \varDelta t $ and the simulation end-time.
+    // Optionally, a piecewise-constant time step schedule can be given as a
+    // list of "dt:t_end" pairs: the time step dt is used until time t_end is
+    // reached, then the next pair applies. After the last pair (or if no
+    // schedule is given), the default "Time step size" is used until the end
+    // time.
     struct Time
     {
       double delta_t;
       double end_time;
+      std::vector<std::pair<double, double>> time_step_schedule; // (dt, t_end)
 
       static void declare_parameters(ParameterHandler &prm);
 
@@ -486,6 +492,16 @@ namespace Flexodeal
                           "0.1",
                           Patterns::Double(),
                           "Time step size");
+
+        prm.declare_entry("Time step schedule",
+                          "",
+                          Patterns::Anything(),
+                          "Optional piecewise-constant time steps as "
+                          "comma-separated 'dt:t_end' pairs: time step dt is "
+                          "used until time t_end, then the next pair applies. "
+                          "E.g. '0.1:0.1, 0.05:0.21' uses dt = 0.1 until "
+                          "t = 0.1 and dt = 0.05 until t = 0.21. After the "
+                          "last pair (or if empty), 'Time step size' is used.");
       }
       prm.leave_subsection();
     }
@@ -496,6 +512,21 @@ namespace Flexodeal
       {
         end_time = prm.get_double("End time");
         delta_t  = prm.get_double("Time step size");
+
+        time_step_schedule.clear();
+        for (const std::string &entry :
+             Utilities::split_string_list(prm.get("Time step schedule"), ','))
+          {
+            const std::vector<std::string> parts =
+              Utilities::split_string_list(entry, ':');
+            AssertThrow(parts.size() == 2,
+                        ExcMessage("Invalid entry '" + entry +
+                                   "' in 'Time step schedule': entries must "
+                                   "have the form 'dt:t_end'."));
+            time_step_schedule.emplace_back(
+              Utilities::string_to_double(parts[0]),
+              Utilities::string_to_double(parts[1]));
+          }
       }
       prm.leave_subsection();
     }
@@ -691,55 +722,133 @@ namespace Flexodeal
 
   // @sect3{Time class}
 
-  // A simple class to store time data. Its functioning is transparent so no
-  // discussion is necessary. For simplicity we assume a constant time step
-  // size.
+  // A class to store time data, supporting both a uniform time step and a
+  // piecewise-constant time step schedule (see Parameters::Time).
+  //
+  // To avoid round-off errors, all times are stored internally as integer
+  // numbers of "ticks" of 1 ns. Time levels, segment boundaries and the end
+  // condition are thus computed and compared exactly (e.g., there is no
+  // 0.10000000001 instead of 0.1, and no spurious tiny time steps when
+  // switching between segments). Times are converted to double only when
+  // requested: since 1e9 is exactly representable, n / 1e9 is the correctly
+  // rounded double of the exact decimal time, i.e., the same double that
+  // results from parsing, e.g., "0.1" from the parameter file.
   class Time
   {
   public:
-    Time(const double time_end, const double delta_t)
-      : timestep(0)
-      , time_previous(0.0)
-      , time_current(0.0)
-      , time_end(time_end)
-      , delta_t(delta_t)
-    {}
+    Time(const double                                  time_end,
+         const double                                  delta_t,
+         const std::vector<std::pair<double, double>> &schedule = {})
+      : end_ticks(to_ticks(time_end, "End time"))
+      , default_dt_ticks(to_ticks(delta_t, "Time step size"))
+    {
+      AssertThrow(default_dt_ticks > 0,
+                  ExcMessage("The time step size must be positive."));
+
+      for (const auto &[dt_seg, t_seg_end] : schedule)
+        {
+          const Segment s{to_ticks(t_seg_end, "Time step schedule"),
+                          to_ticks(dt_seg, "Time step schedule")};
+          AssertThrow(s.dt > 0,
+                      ExcMessage("Time steps in 'Time step schedule' must be "
+                                 "positive."));
+          AssertThrow(segments.empty() ? s.end > 0 : s.end > segments.back().end,
+                      ExcMessage("The end times in 'Time step schedule' must be "
+                                 "positive and strictly increasing."));
+          segments.push_back(s);
+        }
+
+      // Make get_delta_t() meaningful already at t = 0.
+      dt_ticks = next_ticks() - now_ticks;
+    }
 
     virtual ~Time() = default;
 
     double current() const
     {
-      return time_current;
+      return to_seconds(now_ticks);
     }
     double previous() const
     {
-      return time_previous;
+      return to_seconds(prev_ticks);
     }
     double end() const
     {
-      return time_end;
+      return to_seconds(end_ticks);
     }
     double get_delta_t() const
     {
-      return delta_t;
+      return to_seconds(dt_ticks);
     }
     unsigned int get_timestep() const
     {
       return timestep;
     }
+
+    // The simulation is finished once the current time exceeds the end time.
+    // The time step that lands exactly on the end time is still solved.
+    bool finished() const
+    {
+      return now_ticks > end_ticks;
+    }
+
     void increment()
     {
-      time_previous = time_current;
-      time_current += delta_t;
+      prev_ticks = now_ticks;
+      now_ticks  = next_ticks();
+      dt_ticks   = now_ticks - prev_ticks;
       ++timestep;
     }
 
   private:
-    unsigned int timestep;
-    double       time_previous;
-    double       time_current;
-    const double time_end;
-    const double delta_t;
+    using ticks_t = std::int64_t;
+
+    // 1 ns resolution. With 64-bit integers this covers ~292 years, and times
+    // are converted exactly to double as long as they are below 2^53 ticks
+    // (~104 days).
+    static constexpr double ticks_per_second = 1.0e9;
+
+    struct Segment
+    {
+      ticks_t end; // end time of the segment
+      ticks_t dt;  // time step used within the segment
+    };
+
+    static ticks_t to_ticks(const double t, const std::string &name)
+    {
+      const double  scaled = t * ticks_per_second;
+      const ticks_t n      = std::llround(scaled);
+      AssertThrow(std::abs(scaled - static_cast<double>(n)) < 1.0e-3,
+                  ExcMessage("The value " + Utilities::to_string(t) + " given in '" +
+                             name + "' is not a multiple of 1 ns."));
+      return n;
+    }
+
+    static double to_seconds(const ticks_t n)
+    {
+      return static_cast<double>(n) / ticks_per_second;
+    }
+
+    // The next time level: use the time step of the segment containing the
+    // current time, and land exactly on the segment boundaries. Past the last
+    // segment (or if there is no schedule), use the default time step. Pure
+    // integer arithmetic: no tolerances are needed.
+    ticks_t next_ticks() const
+    {
+      for (const Segment &s : segments)
+        if (now_ticks < s.end)
+          return std::min(now_ticks + s.dt, s.end);
+
+      return now_ticks + default_dt_ticks;
+    }
+
+    std::vector<Segment> segments;
+    const ticks_t        end_ticks;
+    const ticks_t        default_dt_ticks;
+    ticks_t              now_ticks  = 0;
+    ticks_t              prev_ticks = 0;
+    ticks_t              dt_ticks   = 0;
+    unsigned int         timestep   = 0;
   };
 
   // @sect3{Function from tabular data and interpolation tools}
@@ -1449,7 +1558,11 @@ namespace Flexodeal
     // dilation $\widetilde{J}$ field values, fibre activation $a(t^n)$,
     // and time step size $\delta t$ (recall that the elasticity tensor
     // in the dynamic computation depends on the current time step size).
-    void setup_lqp(const Parameters::AllParameters &parameters)
+    // The time step size is passed separately (from the Time object) rather
+    // than taken from parameters.delta_t, so that the first time step uses
+    // the time step from the schedule, if one is given.
+    void setup_lqp(const Parameters::AllParameters &parameters,
+                   const double                     delta_t)
     {
       material =
         std::make_shared<Muscle_Tissues_Three_Field<dim>>(
@@ -1471,7 +1584,7 @@ namespace Flexodeal
                     0.0,                /*Pressure*/
                     1.0,                /*Dilation*/
                     0.0,                /*Activation*/
-                    parameters.delta_t  /*Time step size*/);
+                    delta_t             /*Time step size*/);
     }
 
     // To this end, we calculate the deformation gradient $\mathbf{F}$ from
@@ -2001,7 +2114,7 @@ namespace Flexodeal
     , parameters(varargs.at("-PARAMETERS"))
     , vol_reference(0.)
     , triangulation(Triangulation<dim>::maximum_smoothing)
-    , time(parameters.end_time, parameters.delta_t)
+    , time(parameters.end_time, parameters.delta_t, parameters.time_step_schedule)
     , timer(std::cout, TimerOutput::summary, TimerOutput::wall_times)
     , u_dir(varargs.at("-BDY_STRAIN"))
     , activation_function(varargs.at("-ACTIVATION"))
@@ -2160,7 +2273,7 @@ namespace Flexodeal
     //
     // At the beginning, we reset the solution update for this time step...
     BlockVector<double> solution_delta(dofs_per_block);
-    while (time.current() < time.end())
+    while (!time.finished())
       {
         solution_delta = 0.0;
 
@@ -2749,7 +2862,7 @@ namespace Flexodeal
         Assert(lqph.size() == n_q_points, ExcInternalError());
 
         for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
-          lqph[q_point]->setup_lqp(parameters);
+          lqph[q_point]->setup_lqp(parameters, time.get_delta_t());
       }
   }
 
