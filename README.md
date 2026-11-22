@@ -48,10 +48,14 @@ make run
 ```
 or
 ```
-./flexodeal-lite -PARAMETERS=parameters.prm -BDY_STRAIN=control_points_strain.dat -ACTIVATION=control_points_activation.dat -PRESSURE=control_points_pressure.dat
+./flexodeal-lite -PARAMETERS=parameters.prm -BDY_STRAIN=control_points_strain.dat -ACTIVATION=control_points_activation.dat -PRESSURE=control_points_pressure.dat -MARKERS=markers.dat
 ```
-- Modify the values of `-PARAMETERS`, `-BDY_STRAIN`, `-ACTIVATION` or `-PRESSURE` to use different parameter files, boundary strains, activation profiles or pressure profiles.
+- Modify the values of `-PARAMETERS`, `-BDY_STRAIN`, `-ACTIVATION`, `-PRESSURE` or `-MARKERS` to use different parameter files, boundary strains, activation profiles, pressure profiles or marker lists.
 - A pressure file is used to apply pressure on the boundary as a boundary condition.
+- A markers file lists the points where displacements are recorded, one per line: a label followed by the x, y and z coordinates (e.g. `p1 0.0075 0.005 0.005`). The points must be vertices of the mesh. For example, the gearing experiment uses its own markers file:
+```
+./flexodeal-lite -PARAMETERS=examples/GE_parameters.prm -BDY_STRAIN=examples/GE_strain.dat -ACTIVATION=examples/GE_activation.dat -MARKERS=examples/GE_markers.dat -OUTPUT_DIR=gearing_experiment
+```
 - A folder with the current timestamp will be created. This is where the results will be stored. You can also store these results in a folder of your choice by including the `-OUTPUT_DIR` flag when running the code, for example:
 ```
 ./flexodeal-lite -OUTPUT_DIR=test_results

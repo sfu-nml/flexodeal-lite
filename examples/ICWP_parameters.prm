@@ -139,14 +139,6 @@ subsection Prescribed displacement
 end
 
 
-subsection Measuring locations
-    # These locations MUST correspond to vertices on the grid. Otherwise
-    # the solver returns the error: "The evaluation point ... was not 
-    # found among the vertices of the present grid."
-
-    set Markers list file = markers.dat
-end
-
 subsection Output binary files
     # These files contain QP information of the main variables in the code
     # and they're written at each time step. In essence, each file is a

@@ -589,52 +589,6 @@ namespace Flexodeal
       prm.leave_subsection();
     }
 
-    // @sect4{Measuring locations}
-    
-    // We use this section to indicate the file which contains a list
-    // of markers. We call a "marker" a mesh vertex that contains
-    // displacement degrees of freedom, so that we can output displacement
-    // information at particular points. Older versions of this code had only
-    // support for three points (left, mid, and right), but now all we need
-    // is a list containing a label and the 3D point. For example, a file
-    // called markers.dat could contain the following information:
-    //   p1 0.0075 0.005 0.005
-    //   p2 0.015  0.005 0.005
-    //   p3 0.0225 0.005 0.005
-    // Note that the markers MUST corresponds to places with availability of
-    // displacement degrees of freedom (for Q2 and Q1 elements, these are mesh
-    // vertices).
-    struct MeasuringLocations
-    {
-      std::string markers_list_file;
-
-      static void
-      declare_parameters(ParameterHandler &prm);
-
-      void
-      parse_parameters(ParameterHandler &prm);
-    };
-
-    void Parameters::MeasuringLocations::declare_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Measuring locations");
-      {
-        prm.declare_entry("Markers list file", "",
-                          Patterns::FileName(),
-                          "File including list of markers");
-      }
-      prm.leave_subsection();
-    }
-
-    void Parameters::MeasuringLocations::parse_parameters(ParameterHandler &prm)
-    {
-      prm.enter_subsection("Measuring locations");
-      {
-        markers_list_file = prm.get("Markers list file");
-      }
-      prm.leave_subsection();
-    }
-
     // @sect4{Output binary files}
 
     // This section implements the booleans that tell the solver
@@ -688,7 +642,6 @@ namespace Flexodeal
                            public NonlinearSolver,
                            public Time,
                            public PrescribedDisplacement,
-                           public MeasuringLocations,
                            public OutputBinaryFiles
 
     {
@@ -722,7 +675,6 @@ namespace Flexodeal
       NonlinearSolver::declare_parameters(prm);
       Time::declare_parameters(prm);
       PrescribedDisplacement::declare_parameters(prm);
-      MeasuringLocations::declare_parameters(prm);
       OutputBinaryFiles::declare_parameters(prm);
     }
 
@@ -735,7 +687,6 @@ namespace Flexodeal
       NonlinearSolver::parse_parameters(prm);
       Time::parse_parameters(prm);
       PrescribedDisplacement::parse_parameters(prm);
-      MeasuringLocations::parse_parameters(prm);
       OutputBinaryFiles::parse_parameters(prm);
     }
   } // namespace Parameters
@@ -2682,8 +2633,19 @@ namespace Flexodeal
               << std::endl;
 
     // Now that the dof_handler structure has been set up, we find the
-    // global_dof_index corresponding to different markers listed by the
-    // user ("set Markers list file" in parameter file).
+    // global_dof_index corresponding to the markers listed by the user.
+    //
+    // We call a "marker" a mesh vertex that contains displacement degrees of
+    // freedom, so that we can output displacement information at particular
+    // points. The markers are read from the file given by the -MARKERS
+    // command-line flag (markers.dat by default), which contains one marker
+    // per line: a label followed by the 3D point. For example:
+    //   p1 0.0075 0.005 0.005
+    //   p2 0.015  0.005 0.005
+    //   p3 0.0225 0.005 0.005
+    // Note that the markers MUST correspond to places with availability of
+    // displacement degrees of freedom (for Q2 and Q1 elements, these are mesh
+    // vertices).
     {
       // First, we declare an exception in case one of the points
       // is not found as a vertex in the grid.
@@ -2694,13 +2656,14 @@ namespace Flexodeal
         << " was not found among the vertices of the present grid.");
 
       // Read line from file and push back a new marker
-      std::ifstream infile(parameters.markers_list_file);
+      const std::string &markers_file = varargs.at("-MARKERS");
+      std::ifstream      infile(markers_file);
 
       // Raise an exception if file cannot be open (perhaps it does not
       // even exist!).
       if (infile.fail())
         throw std::invalid_argument("Cannot open file: " 
-                + parameters.markers_list_file 
+                + markers_file
                 + ". Make sure the file exists and it has read permissions.");
       
       std::string label;
@@ -5708,6 +5671,7 @@ int main(int argc, char* argv[])
   args["-BDY_STRAIN"] = "control_points_strain.dat";
   args["-ACTIVATION"] = "control_points_activation.dat";
   args["-PRESSURE"]   = "control_points_pressure.dat";
+  args["-MARKERS"]    = "markers.dat";
   args["-OUTPUT_DIR"] = "";
 
   // Modify default values according to input
