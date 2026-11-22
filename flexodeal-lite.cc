@@ -419,6 +419,8 @@ namespace Flexodeal
       unsigned int max_iterations_NR;
       double       tol_f;
       double       tol_u;
+      bool         line_search;
+      unsigned int max_backtracks;
 
       static void declare_parameters(ParameterHandler &prm);
 
@@ -447,6 +449,22 @@ namespace Flexodeal
                           "1.0e-6",
                           Patterns::Double(0.0),
                           "Displacement error tolerance");
+
+        prm.declare_entry("Line search",
+                          "false",
+                          Patterns::Bool(),
+                          "Backtracking line search on the displacement "
+                          "residual norm (classicNewton only). A Newton step "
+                          "is shortened when it does not reduce the residual "
+                          "sufficiently or when it inverts an element "
+                          "(det F <= 0).");
+
+        prm.declare_entry("Max line search backtracks",
+                          "5",
+                          Patterns::Integer(1),
+                          "Maximum number of step reductions per Newton "
+                          "iteration. If exhausted, the shortest step is "
+                          "accepted (unless it inverts an element).");
       }
       prm.leave_subsection();
     }
@@ -459,6 +477,8 @@ namespace Flexodeal
         max_iterations_NR = prm.get_integer("Max iterations Newton-Raphson");
         tol_f             = prm.get_double("Tolerance force");
         tol_u             = prm.get_double("Tolerance displacement");
+        line_search       = prm.get_bool("Line search");
+        max_backtracks    = prm.get_integer("Max line search backtracks");
       }
       prm.leave_subsection();
     }
@@ -1601,7 +1621,12 @@ namespace Flexodeal
     // general, the conversion to SymmetricTensor will fail. We can avoid this
     // back and forth by converting $I$ to Tensor first, and then performing
     // the addition as between nonsymmetric tensors:
-    void update_values(const Tensor<1, dim> &u_n,
+    //
+    // If the deformation gradient is not admissible (det F <= 0, i.e., the
+    // element is inverted at this point), nothing is updated and false is
+    // returned, so that the caller can react (e.g., by shortening the Newton
+    // step) instead of aborting the program.
+    bool update_values(const Tensor<1, dim> &u_n,
                        const Tensor<2, dim> &Grad_u_n,
                        const double          p_tilde,
                        const double          J_tilde,
@@ -1609,6 +1634,9 @@ namespace Flexodeal
                        const double          delta_t)
     {
       const Tensor<2, dim> F = Physics::Elasticity::Kinematics::F(Grad_u_n);
+      if (!(determinant(F) > 0.0))
+        return false;
+
       grad_velocity = (F - F_previous) / delta_t;
       material->update_material_data(F, 
                                      p_tilde, 
@@ -1636,6 +1664,8 @@ namespace Flexodeal
       Jc                          = material->get_Jc();
       dPsi_vol_dJ                 = material->get_dPsi_vol_dJ();
       d2Psi_vol_dJ2               = material->get_d2Psi_vol_dJ2();
+
+      return true;
     }
 
     // Next, we implement a function that will update the previous variables once
@@ -1911,15 +1941,27 @@ namespace Flexodeal
     // empty:
     void setup_qph();
 
-    void update_qph_incremental(const BlockVector<double> &solution_delta);
+    // Returns false if det F <= 0 at some quadrature point. In that case the
+    // quadrature point data is only partially updated and must not be used
+    // for assembly.
+    bool update_qph_incremental(const BlockVector<double> &solution_delta);
 
     void update_qph_incremental_one_cell(
       const typename DoFHandler<dim>::active_cell_iterator &cell,
       ScratchData_UQPH &                                    scratch,
       PerTaskData_UQPH &                                    data);
 
-    void copy_local_to_global_UQPH(const PerTaskData_UQPH & /*data*/)
-    {}
+    // The only "global" data collected during the update is whether some
+    // quadrature point was inverted. The copier runs sequentially, so no
+    // synchronization is needed.
+    void copy_local_to_global_UQPH(const PerTaskData_UQPH &data);
+
+    bool qph_inverted = false;
+
+    // Whether assemble_system() and update_qph_incremental() print their
+    // progress labels in the convergence table (turned off while the line
+    // search reassembles, to keep the columns aligned).
+    bool print_progress = true;
 
     void update_timestep();
 
@@ -2480,8 +2522,12 @@ namespace Flexodeal
   template <int dim>
   struct Solid<dim>::PerTaskData_UQPH
   {
+    bool inverted = false; // det F <= 0 at some QP of the cell
+
     void reset()
-    {}
+    {
+      inverted = false;
+    }
   };
 
 
@@ -2875,11 +2921,14 @@ namespace Flexodeal
   // at this Newton increment and then create the initial copy of the scratch
   // and copy data objects:
   template <int dim>
-  void
+  bool
   Solid<dim>::update_qph_incremental(const BlockVector<double> &solution_delta)
   {
     timer.enter_subsection("Update QPH data");
-    std::cout << " UQPH " << std::flush;
+    if (print_progress)
+      std::cout << " UQPH " << std::flush;
+
+    qph_inverted = false;
 
     const BlockVector<double> solution_total(
       get_total_solution(solution_delta));
@@ -2898,6 +2947,16 @@ namespace Flexodeal
                     per_task_data_UQPH);
 
     timer.leave_subsection();
+
+    return !qph_inverted;
+  }
+
+
+  template <int dim>
+  void Solid<dim>::copy_local_to_global_UQPH(const PerTaskData_UQPH &data)
+  {
+    if (data.inverted)
+      qph_inverted = true;
   }
 
 
@@ -2907,8 +2966,10 @@ namespace Flexodeal
   void Solid<dim>::update_qph_incremental_one_cell(
     const typename DoFHandler<dim>::active_cell_iterator &cell,
     ScratchData_UQPH &                                    scratch,
-    PerTaskData_UQPH & /*data*/)
+    PerTaskData_UQPH &                                    data)
   {
+    data.reset();
+
     const std::vector<std::shared_ptr<PointHistory<dim>>> lqph =
       quadrature_point_history.get_data(cell);
     Assert(lqph.size() == n_q_points, ExcInternalError());
@@ -2940,12 +3001,13 @@ namespace Flexodeal
 
     for (const unsigned int q_point :
          scratch.fe_values.quadrature_point_indices())
-      lqph[q_point]->update_values(scratch.solution_values_u_total[q_point],
-                                   scratch.solution_grads_u_total[q_point],
-                                   scratch.solution_values_p_total[q_point],
-                                   scratch.solution_values_J_total[q_point],
-                                   activation_function(time.current())[0],
-                                   time.get_delta_t());
+      if (!lqph[q_point]->update_values(scratch.solution_values_u_total[q_point],
+                                        scratch.solution_grads_u_total[q_point],
+                                        scratch.solution_values_p_total[q_point],
+                                        scratch.solution_values_J_total[q_point],
+                                        activation_function(time.current())[0],
+                                        time.get_delta_t()))
+        data.inverted = true;
   }
 
   // The update at the end of the time step is even simpler. It only needs to
@@ -3025,8 +3087,17 @@ namespace Flexodeal
     // Additional variables required for accelerated Newton method
     BlockVector<double> newton_update_previous(dofs_per_block);
     BlockVector<double> solution_k_previous(solution_n); 
-    BlockVector<double> solution_k(dofs_per_block); 
-    
+    BlockVector<double> solution_k(dofs_per_block);
+
+    // Additional variables required for the line search (see below)
+    const bool use_line_search =
+      parameters.line_search &&
+      parameters.type_nonlinear_solver == "classicNewton";
+    BlockVector<double> step_previous(dofs_per_block); // full Newton step
+    Errors              error_step_previous;           // its norms
+    double              alpha            = 1.0;  // fraction of it applied
+    double              residual_u_start = 0.0;  // |R_u| before it
+    bool                qph_valid        = true; // det F > 0 everywhere
 
     error_residual.reset();
     error_residual_0.reset();
@@ -3066,11 +3137,99 @@ namespace Flexodeal
         // We construct the linear system, but hold off on solving it
         // (a step that should be significantly more expensive than assembly):
         make_constraints(newton_iteration);
-        assemble_system();
 
-        // We can now determine the normalized residual error and check for
-        // solution convergence:
-        get_error_residual(error_residual);
+        // Step lengths tried by the line search, printed at the end of the row
+        std::ostringstream line_search_info;
+
+        if (use_line_search && newton_iteration >= 2)
+          {
+            // Backtracking line search on the displacement residual norm.
+            // The step taken at the previous iteration is checked here, using
+            // the residual that has to be assembled anyway, so a full step
+            // that is accepted costs nothing extra. If the residual did not
+            // decrease sufficiently (Armijo condition with c = 1e-4), or if
+            // the step inverted an element, the step is shortened, the QP
+            // data updated and the system reassembled.
+            //
+            // The step of iteration 0 is never checked: it carries the
+            // Dirichlet increment (non-homogeneous constraints), so it must
+            // be applied in full. From iteration 1 on, the constraints are
+            // homogeneous and the steps can be scaled freely.
+            //
+            // To keep the columns of the convergence table aligned, the
+            // progress labels (ASM_SYS, UQPH) are printed only once per row,
+            // and the step lengths tried are printed at the end of the row.
+            const double c_armijo = 1.0e-4;
+            bool         asm_label_printed = false;
+
+            for (unsigned int n_backtracks = 0;; ++n_backtracks)
+              {
+                if (qph_valid)
+                  {
+                    print_progress    = !asm_label_printed;
+                    asm_label_printed = true;
+                    assemble_system();
+                    get_error_residual(error_residual);
+                    if (error_residual.u <=
+                        (1.0 - c_armijo * alpha) * residual_u_start)
+                      break;
+                  }
+
+                // Too many reductions: accept the shortest step, unless it
+                // inverts an element.
+                if (n_backtracks == parameters.max_backtracks)
+                  {
+                    AssertThrow(qph_valid,
+                                ExcMessage("Line search failed: det F <= 0 "
+                                           "even for the shortest step."));
+                    line_search_info << " LS-MAX";
+                    break;
+                  }
+
+                // New step length: minimizer of the quadratic model of
+                // phi(alpha) = |R_u(alpha)|^2 / 2 with phi'(0) = -|R_u(0)|^2
+                // (exact for an exact Newton direction), safeguarded to
+                // [0.1, 0.5] times the current one. Halve if the residual is
+                // unknown (inverted element).
+                double alpha_new = 0.5 * alpha;
+                if (qph_valid)
+                  {
+                    const double r0_sq = residual_u_start * residual_u_start;
+                    const double r_sq  = error_residual.u * error_residual.u;
+                    const double denom = r_sq - r0_sq + 2.0 * alpha * r0_sq;
+                    if (denom > 0.0)
+                      alpha_new = std::clamp(alpha * alpha * r0_sq / denom,
+                                             0.1 * alpha,
+                                             0.5 * alpha);
+                  }
+
+                solution_delta.add(alpha_new - alpha, step_previous);
+                alpha = alpha_new;
+                line_search_info << " LS(" << std::setprecision(3) << alpha
+                                 << ")";
+                print_progress = false;
+                qph_valid      = update_qph_incremental(solution_delta);
+              }
+            print_progress = true;
+
+            // The convergence check must use the step actually applied.
+            error_update_norm.norm = alpha * error_step_previous.norm;
+            error_update_norm.u    = alpha * error_step_previous.u;
+            error_update_norm.p    = alpha * error_step_previous.p;
+            error_update_norm.J    = alpha * error_step_previous.J;
+          }
+        else
+          {
+            AssertThrow(qph_valid,
+                        ExcMessage("det F <= 0 at some quadrature point. Try "
+                                   "'Line search = true' (classicNewton) or "
+                                   "a smaller time step."));
+            assemble_system();
+
+            // We can now determine the normalized residual error and check
+            // for solution convergence:
+            get_error_residual(error_residual);
+          }
         if (newton_iteration == 0)
           error_residual_0 = error_residual;
 
@@ -3080,7 +3239,7 @@ namespace Flexodeal
         if (newton_iteration > 0 && error_update_norm.u <= parameters.tol_u &&
             error_residual_norm.u <= parameters.tol_f)
           {
-            std::cout << " CONVERGED! " << std::endl;
+            std::cout << " CONVERGED! " << line_search_info.str() << std::endl;
             print_conv_footer();
 
             break;
@@ -3105,6 +3264,16 @@ namespace Flexodeal
         // this new displacement and stress state and continue iterating:
         if (parameters.type_nonlinear_solver == "classicNewton")
         {
+          // Keep what the line search needs to check (and possibly shorten)
+          // this step at the next iteration.
+          if (use_line_search)
+            {
+              step_previous       = newton_update;
+              error_step_previous = error_update;
+              residual_u_start    = error_residual.u;
+              alpha               = 1.0;
+            }
+
           solution_delta += newton_update;
         }
         else if (parameters.type_nonlinear_solver == "acceleratedNewton")
@@ -3164,7 +3333,7 @@ namespace Flexodeal
         else
             Assert (false, ExcMessage("Non-linear solver type not implemented"));
 
-        update_qph_incremental(solution_delta);
+        qph_valid = update_qph_incremental(solution_delta);
 
         std::cout << " | " << std::fixed << std::setprecision(3) << std::setw(7)
                   << std::scientific << lin_solver_output.first << "  "
@@ -3173,7 +3342,8 @@ namespace Flexodeal
                   << "  " << error_residual_norm.p << "  "
                   << error_residual_norm.J << "  " << error_update_norm.norm
                   << "  " << error_update_norm.u << "  " << error_update_norm.p
-                  << "  " << error_update_norm.J << "  " << std::endl;
+                  << "  " << error_update_norm.J << "  "
+                  << line_search_info.str() << std::endl;
       }
 
     // At the end, if it turns out that we have in fact done more iterations
@@ -3380,7 +3550,8 @@ namespace Flexodeal
   void Solid<dim>::assemble_system()
   {
     timer.enter_subsection("Assemble system");
-    std::cout << " ASM_SYS " << std::flush;
+    if (print_progress)
+      std::cout << " ASM_SYS " << std::flush;
 
     tangent_matrix = 0.0;
     system_rhs     = 0.0;
