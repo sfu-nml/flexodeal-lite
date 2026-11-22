@@ -25,4 +25,4 @@ jobs:
 
       - name: Run smoke tests
         working-directory: build
-        run: ctest -L smoke --output-on-failure --parallel 5
+        run: ctest -L smoke --output-on-failure --parallel 6

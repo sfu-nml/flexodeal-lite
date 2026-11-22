@@ -54,3 +54,11 @@ add_smoke_test(CC
     -BDY_STRAIN=examples/CC_strain.dat \
     -ACTIVATION=examples/CC_activation.dat"
 )
+
+add_smoke_test(GE
+  "${BINARY} \
+    -PARAMETERS=${ROOT}/examples/GE_parameters.prm \
+    -BDY_STRAIN=${ROOT}/examples/GE_strain.dat \
+    -ACTIVATION=${ROOT}/examples/GE_activation.dat \
+    -MARKERS=${ROOT}/examples/GE_markers.dat"
+)
